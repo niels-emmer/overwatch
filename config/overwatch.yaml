@@ -1,0 +1,18 @@
+ollama:
+  host: http://host.docker.internal:11434
+  analysis_model: qwen3:8b
+  planning_model: devstral-small-2
+
+monitor:
+  log_window_seconds: 30
+  min_error_lines_to_trigger: 3
+  finding_severity_threshold: WARNING  # generate a plan for WARNING and above
+
+allowed_actions:
+  - type: docker_restart
+    description: Restart a container
+  - type: docker_exec
+    commands:
+      - "nginx -s reload"
+      - "supervisorctl restart all"
+      - "kill -HUP 1"
