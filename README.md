@@ -125,6 +125,7 @@ monitor:
   log_window_seconds: 30          # rolling window size for grouping errors
   min_error_lines_to_trigger: 3   # how many suspicious lines trigger an analysis
   finding_severity_threshold: WARNING  # minimum severity to generate a plan
+  cooldown_minutes: 10                 # suppress duplicate findings per container for this long
 
 allowed_actions:
   - type: docker_restart

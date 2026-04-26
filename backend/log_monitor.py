@@ -73,6 +73,7 @@ class LogMonitor:
         self._broadcast = broadcast
         self._streams: dict[str, ContainerLogStream] = {}
         self._windows: dict[str, list[tuple[float, str]]] = defaultdict(list)
+        self._cooldowns: dict[str, float] = {}  # container_name -> cooldown expiry timestamp
         self._loop: asyncio.AbstractEventLoop | None = None
         self._running = False
         self._on_finding: Callable[[str, str, str], Awaitable[None]] | None = None
@@ -152,20 +153,33 @@ class LogMonitor:
             if is_suspicious(text):
                 self._windows[container_name].append((time.time(), text))
 
+    def clear_cooldown(self, container_name: str) -> None:
+        """Called when a finding is dismissed or resolved, allowing new findings immediately."""
+        self._cooldowns.pop(container_name, None)
+
     async def _flush_windows(self) -> None:
         window_secs = self._config.monitor.log_window_seconds
         threshold = self._config.monitor.min_error_lines_to_trigger
+        cooldown_secs = self._config.monitor.cooldown_minutes * 60
 
         while self._running:
             await asyncio.sleep(window_secs)
-            cutoff = time.time() - window_secs
+            now = time.time()
+            cutoff = now - window_secs
 
             for container_name in list(self._windows.keys()):
                 recent = [(ts, l) for ts, l in self._windows[container_name] if ts >= cutoff]
                 self._windows[container_name] = recent
 
-                if len(recent) >= threshold and self._on_finding:
-                    log_text = "\n".join(l for _, l in recent)
-                    finding_id = str(uuid.uuid4())
-                    self._windows[container_name] = []  # clear after sending
-                    asyncio.create_task(self._on_finding(container_name, log_text, finding_id))
+                if len(recent) < threshold or not self._on_finding:
+                    continue
+
+                if self._cooldowns.get(container_name, 0) > now:
+                    logger.debug(f"Skipping finding for {container_name} — in cooldown")
+                    continue
+
+                log_text = "\n".join(l for _, l in recent)
+                finding_id = str(uuid.uuid4())
+                self._windows[container_name] = []
+                self._cooldowns[container_name] = now + cooldown_secs
+                asyncio.create_task(self._on_finding(container_name, log_text, finding_id))

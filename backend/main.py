@@ -3,7 +3,7 @@ import json
 import logging
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -52,6 +52,19 @@ monitor: LogMonitor | None = None
 
 
 async def on_finding(container_name: str, log_text: str, finding_id: str) -> None:
+    # DB-level guard: skip if an open finding for this container exists within the cooldown window.
+    # This catches cases where the monitor restarted and lost its in-memory cooldown state.
+    cooldown_cutoff = datetime.utcnow() - timedelta(minutes=config.monitor.cooldown_minutes)
+    async with SessionLocal() as session:
+        q = select(Finding).where(
+            Finding.container_name == container_name,
+            Finding.status == "open",
+            Finding.detected_at >= cooldown_cutoff,
+        ).limit(1)
+        if (await session.execute(q)).scalar_one_or_none():
+            logger.debug(f"Suppressing duplicate finding for {container_name} — open finding within cooldown window")
+            return
+
     result = await ai_analyzer.analyze_logs(container_name, log_text, config)
     if not result:
         return
@@ -181,10 +194,14 @@ async def dismiss_finding(finding_id: str):
         f = await session.get(Finding, finding_id)
         if not f:
             raise HTTPException(404, "Not found")
+        container_name = f.container_name
         f.status = "dismissed"
-        audit = AuditEntry(event_type="finding_dismissed", container_name=f.container_name)
+        audit = AuditEntry(event_type="finding_dismissed", container_name=container_name)
         session.add(audit)
         await session.commit()
+    # Clear cooldown so the container can raise new findings immediately after dismissal
+    if monitor:
+        monitor.clear_cooldown(container_name)
     await hub.broadcast({"type": "finding_updated", "data": {"id": finding_id, "status": "dismissed"}})
     return {"ok": True}
 

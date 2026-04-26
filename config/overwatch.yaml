@@ -7,6 +7,7 @@ monitor:
   log_window_seconds: 30
   min_error_lines_to_trigger: 3
   finding_severity_threshold: WARNING  # generate a plan for WARNING and above
+  cooldown_minutes: 10                 # suppress duplicate findings per container for this long
 
 allowed_actions:
   - type: docker_restart
