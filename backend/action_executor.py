@@ -24,7 +24,7 @@ def exec_in_container(container_name: str, command: str) -> dict:
     try:
         client = docker.from_env()
         container = client.containers.get(container_name)
-        result = container.exec_run(command, demux=False)
+        result = container.exec_run(['sh', '-c', command], demux=False)
         output = result.output.decode("utf-8", errors="replace") if result.output else ""
         success = result.exit_code == 0
         logger.info(f"Exec in {container_name}: {command!r} → exit {result.exit_code}")
