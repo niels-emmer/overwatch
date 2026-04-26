@@ -75,6 +75,7 @@ interface State {
   selectedContainer: string | null
   activeFindingId: string | null
   activeTab: 'logs' | 'findings' | 'audit'
+  sidebarFilter: 'all' | 'unhealthy'
   wsConnected: boolean
   actionUpdates: Record<string, ActionUpdate>
 
@@ -87,6 +88,7 @@ interface State {
   setSelectedContainer: (name: string | null) => void
   setActiveFinding: (id: string | null) => void
   setActiveTab: (tab: 'logs' | 'findings' | 'audit') => void
+  setSidebarFilter: (f: 'all' | 'unhealthy') => void
   setWsConnected: (v: boolean) => void
   setActionUpdate: (update: ActionUpdate) => void
 }
@@ -99,6 +101,7 @@ export const useStore = create<State>((set) => ({
   selectedContainer: null,
   activeFindingId: null,
   activeTab: 'logs',
+  sidebarFilter: 'all',
   wsConnected: false,
   actionUpdates: {},
 
@@ -135,6 +138,7 @@ export const useStore = create<State>((set) => ({
   setSelectedContainer: (name) => set({ selectedContainer: name }),
   setActiveFinding: (id) => set({ activeFindingId: id }),
   setActiveTab: (tab) => set({ activeTab: tab }),
+  setSidebarFilter: (sidebarFilter) => set({ sidebarFilter }),
   setWsConnected: (wsConnected) => set({ wsConnected }),
   setActionUpdate: (update) =>
     set((s) => ({

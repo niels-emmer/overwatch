@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useStore, Finding } from '../store'
 
 const SEV_STYLE: Record<string, string> = {
@@ -41,7 +42,12 @@ function FindingCard({ finding }: { finding: Finding }) {
       </div>
       <p className="text-sm leading-snug">{finding.summary}</p>
       {finding.plan && (
-        <p className="text-xs text-blue-400 mt-1">Plan available — {finding.plan.proposed_actions.length} action(s)</p>
+        <p className="text-xs text-blue-400 mt-1">
+          Plan available — {finding.plan.proposed_actions.length} action(s)
+        </p>
+      )}
+      {finding.status === 'dismissed' && (
+        <span className="text-xs text-gray-600 mt-1 block">Dismissed</span>
       )}
       {finding.status === 'open' && (
         <button
@@ -55,26 +61,57 @@ function FindingCard({ finding }: { finding: Finding }) {
   )
 }
 
+type FindingsFilter = 'active' | 'all'
+
 export function FindingsPanel() {
   const findings = useStore((s) => s.findings)
   const selected = useStore((s) => s.selectedContainer)
-  const visible = selected
+  const [filter, setFilter] = useState<FindingsFilter>('active')
+
+  const byContainer = selected
     ? findings.filter((f) => f.container_name === selected)
     : findings
 
-  if (visible.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-full text-gray-600 text-sm">
-        No findings yet
-      </div>
-    )
-  }
+  const visible = filter === 'active'
+    ? byContainer.filter((f) => f.status === 'open')
+    : byContainer
+
+  const dismissedCount = byContainer.filter((f) => f.status === 'dismissed').length
 
   return (
-    <div className="h-full overflow-y-auto p-3 space-y-2">
-      {visible.map((f) => (
-        <FindingCard key={f.id} finding={f} />
-      ))}
+    <div className="h-full flex flex-col">
+      {/* Filter bar */}
+      <div className="flex items-center gap-1 px-3 py-2 border-b border-gray-800 shrink-0">
+        {(['active', 'all'] as FindingsFilter[]).map((f) => (
+          <button
+            key={f}
+            onClick={() => setFilter(f)}
+            className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+              filter === f
+                ? 'bg-gray-700 text-white'
+                : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'
+            }`}
+          >
+            {f === 'active' ? 'Active' : 'All'}
+            {f === 'all' && dismissedCount > 0 && (
+              <span className="ml-1.5 text-gray-600">+{dismissedCount} dismissed</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* List */}
+      {visible.length === 0 ? (
+        <div className="flex items-center justify-center flex-1 text-gray-600 text-sm">
+          {filter === 'active' ? 'No active findings' : 'No findings yet'}
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+          {visible.map((f) => (
+            <FindingCard key={f.id} finding={f} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
