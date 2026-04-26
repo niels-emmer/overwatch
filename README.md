@@ -20,21 +20,7 @@ AI-powered Docker log monitor with a live web UI. Overwatch tails all running co
 
 ## Screenshot
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│ OVERWATCH                                    ● 2 open findings│
-├────────────┬────────────────────────────┬───────────────────┤
-│ nginx   ✓  │  [Logs] [Findings] [Audit] │  FINDING: nginx   │
-│ postgres✓  │                            │  ERROR: OOM kill  │
-│ redis   ✗2 │  13:42:01 redis  ERR ...  │  ───────────────  │
-│ app     ✓  │  13:42:02 redis  ERR ...  │  DIAGNOSTIC PLAN  │
-│            │  13:42:03 nginx  INF ...  │  1. Check memory  │
-│            │  13:42:04 app    INF ...  │  2. Check limits  │
-│            │                            │  ───────────────  │
-│            │                            │  [↻ Restart redis]│
-│            │                            │  [✓ Dismiss]      │
-└────────────┴────────────────────────────┴───────────────────┘
-```
+![Overwatch screenshot](overwatch-screenshot.png)
 
 ---
 
