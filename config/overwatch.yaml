@@ -14,6 +14,4 @@ allowed_actions:
     description: Restart a container
   - type: docker_exec
     commands:
-      - "nginx -s reload"
-      - "supervisorctl restart all"
-      - "kill -HUP 1"
+      - "*"   # allow any AI-suggested exec command; replace with an explicit list to restrict

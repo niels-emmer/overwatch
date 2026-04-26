@@ -118,12 +118,13 @@ allowed_actions:
     description: Restart a container
   - type: docker_exec
     commands:
-      - "nginx -s reload"
-      - "supervisorctl restart all"
-      - "kill -HUP 1"
+      - "*"   # allow any AI-suggested exec command
+      # Replace "*" with an explicit list to restrict, e.g.:
+      # - "nginx -s reload"
+      # - "curl -v https://example.com"
 ```
 
-Only commands listed under `docker_exec.commands` can be executed from the UI. Add entries here to unlock additional fix actions.
+Use `"*"` under `docker_exec.commands` to allow any AI-suggested exec command (suitable for a trusted LAN). Replace it with an explicit list to restrict what can be run.
 
 ---
 

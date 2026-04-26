@@ -40,7 +40,7 @@ class Config:
             if a.type == action_type:
                 if action_type == "docker_restart":
                     return True
-                if action_type == "docker_exec" and command in a.commands:
+                if action_type == "docker_exec" and ("*" in a.commands or command in a.commands):
                     return True
         return False
 

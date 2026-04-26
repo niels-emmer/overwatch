@@ -9,12 +9,22 @@ function ActionButton({ action, planId, actionIndex }: {
   const key = `${planId}:${actionIndex}`
   const update = useStore((s) => s.actionUpdates[key])
   const [confirming, setConfirming] = useState(false)
+  const [localError, setLocalError] = useState<string | null>(null)
 
   const status = update?.status
 
   async function execute() {
     setConfirming(false)
-    await fetch(`/api/plans/${planId}/actions/${actionIndex}/execute`, { method: 'POST' })
+    setLocalError(null)
+    try {
+      const resp = await fetch(`/api/plans/${planId}/actions/${actionIndex}/execute`, { method: 'POST' })
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}))
+        setLocalError(data.detail ?? `Request failed (HTTP ${resp.status})`)
+      }
+    } catch {
+      setLocalError('Network error — could not reach backend')
+    }
   }
 
   if (status === 'executing') {
@@ -46,6 +56,22 @@ function ActionButton({ action, planId, actionIndex }: {
       <div className="px-3 py-2 bg-red-950 border border-red-800 rounded text-sm text-red-400">
         <span>✗ {action.label} — failed</span>
         {update?.output && <pre className="text-xs text-gray-400 mt-1 whitespace-pre-wrap">{update.output}</pre>}
+      </div>
+    )
+  }
+
+  if (localError) {
+    return (
+      <div className="px-3 py-2 bg-red-950 border border-red-800 rounded text-sm text-red-400">
+        <div className="flex items-center justify-between gap-2">
+          <span>✗ {action.label} — {localError}</span>
+          <button
+            onClick={() => setLocalError(null)}
+            className="shrink-0 text-xs text-gray-500 hover:text-gray-300"
+          >
+            retry
+          </button>
+        </div>
       </div>
     )
   }
