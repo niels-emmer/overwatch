@@ -12,7 +12,10 @@ AI-powered Docker log monitor with a live web UI. Overwatch tails all running co
 - **Automatic error detection** — regex pre-filter catches errors/exceptions/OOM/timeouts before touching the LLM
 - **AI analysis** — suspicious log windows are sent to a local Ollama model for structured diagnosis (severity, summary, root cause)
 - **Diagnostic plans** — a second model generates step-by-step investigation steps and proposed fix actions
-- **One-click fixes** — restart a container or run an allowlisted `exec` command directly from the UI, with a confirm dialog
+- **One-click fixes** — restart a container or exec any AI-suggested command directly from the UI, with a confirm dialog and inline output
+- **Deduplication** — per-container cooldown suppresses repeat findings for a configurable period; dismissing a finding resets it immediately
+- **Sidebar filtering** — group containers by Compose stack, expand/collapse stacks, filter to unhealthy containers only
+- **Findings filtering** — toggle between active-only and all (including dismissed) findings
 - **Audit log** — every finding, plan, and executed action is persisted to SQLite
 - **Fully local** — uses `qwen3:8b` for analysis and `devstral-small-2` for planning by default; both configurable
 
@@ -215,12 +218,16 @@ ollama:
 ```
 `qwen3:1.7b` (1.4 GB) is very fast and sufficient for log analysis.
 
-**Actions are rejected with 403**
+**An action button shows an error instead of executing**
 
-The command must be explicitly listed in `allowed_actions.commands` in `config/overwatch.yaml`. Add it and restart the backend container:
+The error message is shown inline on the button. A `Not Permitted` error means the command is not in the `allowed_actions` allowlist. The default config uses `"*"` (allow all), so this only occurs if you have restricted the list. Add the command to `config/overwatch.yaml` and restart the backend:
 ```bash
 docker compose restart backend
 ```
+
+**Findings keep firing for the same ongoing problem**
+
+This is controlled by `cooldown_minutes` in `config/overwatch.yaml` (default: 10 minutes). While an open finding exists for a container, no new findings are generated for that container within the cooldown window. Dismissing a finding clears the cooldown immediately.
 
 **Database is missing or corrupted**
 

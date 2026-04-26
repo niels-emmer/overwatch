@@ -68,22 +68,22 @@ Docker socket → log_monitor.py → error_detector.py (regex pre-filter)
 
 ### Backend modules
 
-- **`log_monitor.py`** — `LogMonitor` class manages per-container `ContainerLogStream` threads. Each stream runs in a `threading.Thread` reading Docker logs via the SDK, putting lines into a `queue.Queue`. `LogMonitor._drain_stream()` is an async task that reads from the queue and forwards to the WebSocket hub. `_flush_windows()` checks 30-second rolling buffers and fires findings when the threshold is met.
+- **`log_monitor.py`** — `LogMonitor` class manages per-container `ContainerLogStream` threads. Each stream runs in a `threading.Thread` reading Docker logs via the SDK, putting lines into a `queue.Queue`. `LogMonitor._drain_stream()` is an async task that reads from the queue and forwards to the WebSocket hub. `_flush_windows()` checks rolling buffers and fires findings when the threshold is met. Per-container cooldown (`_cooldowns` dict) suppresses duplicate findings; `clear_cooldown(container_name)` is called when a finding is dismissed.
 - **`error_detector.py`** — Cheap regex pre-filter. Runs on every log line before any Ollama call.
 - **`ai_analyzer.py`** — Two async functions: `analyze_logs()` (uses `qwen3:8b`) and `generate_plan()` (uses `devstral-small-2`). Both prepend `/no_think\n` for qwen3-family models to skip extended thinking. Responses are parsed with `_extract_json()` which falls back to regex extraction if direct `json.loads` fails.
 - **`action_executor.py`** — Thin wrapper around the Docker Python SDK. `restart_container()` and `exec_in_container()`. Called via `asyncio.to_thread()` from `main.py`.
-- **`main.py`** — FastAPI app with a `WSHub` (set of WebSocket connections + broadcast). `on_finding()` is the callback from `LogMonitor` that runs analysis, persists to DB, broadcasts, and conditionally triggers plan generation. Actions are executed in `BackgroundTasks` and results broadcast via WebSocket.
+- **`main.py`** — FastAPI app with a `WSHub` (set of WebSocket connections + broadcast). `on_finding()` checks the DB for an existing open finding within the cooldown window before proceeding (guards against duplicate findings after a restart), then runs analysis, persists, broadcasts, and triggers plan generation. Dismissing a finding via `POST /api/findings/{id}/dismiss` also calls `monitor.clear_cooldown()`. Actions run in `BackgroundTasks`; results broadcast via WebSocket.
 - **`database.py`** — SQLAlchemy async with aiosqlite. Three tables: `findings`, `plans`, `audit_log`. DB path is `/app/data/overwatch.db` inside Docker, `../data/overwatch.db` locally.
-- **`config.py`** — Loads `config/overwatch.yaml`. `OLLAMA_HOST` env var overrides yaml. `config.is_action_allowed()` validates action type + command against the allowlist before execution.
+- **`config.py`** — Loads `config/overwatch.yaml`. `OLLAMA_HOST` env var overrides yaml. `config.is_action_allowed()` validates action type + command; supports `"*"` as a wildcard in the `docker_exec` commands list to allow any command.
 
 ### Frontend
 
 Single-page app with a three-panel layout (container sidebar / main tabbed area / plan panel). State lives in a Zustand store (`src/store/index.ts`). The WebSocket connection is established once in `useWebSocket.ts` and dispatches all server events into the store.
 
-- **`ContainerGrid`** — Left sidebar. Click to filter logs/findings to one container.
-- **`LogStream`** — Auto-scrolling log view. Respects `selectedContainer` filter.
-- **`FindingsPanel`** — Cards for each finding; clicking one sets `activeFindingId`.
-- **`PlanView`** — Right panel. Shows diagnostic steps and `ActionButton` components for each proposed action. Each action requires a confirm step before POSTing to `/api/plans/{id}/actions/{index}/execute`.
+- **`ContainerGrid`** — Left sidebar. Groups containers by Compose stack (parsed from `{stack}-{service}-{N}` naming). Stacks are collapsed by default; stacks with open findings auto-expand and re-expand when new alerts arrive. Two top-level filters: `All containers` and `Unhealthy only` (stored as `sidebarFilter` in the Zustand store). Expansion state is tracked via two local `Set<string>` values (`userExpanded`, `userCollapsed`) so auto-expand and manual toggle don't conflict.
+- **`LogStream`** — Auto-scrolling log view. Respects `selectedContainer` filter. Auto-scroll pauses when the user scrolls up.
+- **`FindingsPanel`** — Cards for each finding; clicking one sets `activeFindingId`. Has a local `Active / All` filter toggle — `active` shows only open findings, `all` includes dismissed ones with a dismissed-count hint.
+- **`PlanView`** — Right panel. Shows diagnostic steps and `ActionButton` components for each proposed action. Each action requires a confirm step. HTTP errors from the execute endpoint (e.g. 403, network failure) are caught and shown inline on the button with a retry option, rather than silently failing.
 - **`AuditLog`** — Append-only log of all events fetched from `/api/audit` and appended via WebSocket `action_update` events.
 
 ### WebSocket event types (server → client)
@@ -99,7 +99,10 @@ Single-page app with a three-panel layout (container sidebar / main tabbed area 
 
 ### Config
 
-`config/overwatch.yaml` controls Ollama models, the window/threshold parameters, and the action allowlist. The `allowed_actions` list is the security boundary — only `docker_restart` and explicitly listed `docker_exec` commands can be executed.
+`config/overwatch.yaml` controls Ollama models, window/threshold/cooldown parameters, and the action allowlist. Key options:
+
+- `monitor.cooldown_minutes` — after a finding fires for a container, suppress further findings for this duration. Dismissing a finding resets it immediately.
+- `allowed_actions[docker_exec].commands` — use `"*"` to allow any AI-suggested exec command (default), or replace with an explicit list to restrict. `docker_restart` always allows any container.
 
 ### Environment variables
 
