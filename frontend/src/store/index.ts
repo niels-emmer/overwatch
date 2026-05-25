@@ -44,6 +44,10 @@ export interface Finding {
   root_cause: string | null
   raw_logs: string
   status: 'open' | 'resolved' | 'dismissed'
+  fingerprint?: string | null
+  first_seen_at?: string | null
+  last_seen_at?: string | null
+  occurrence_count?: number
   plan?: Plan | null
 }
 

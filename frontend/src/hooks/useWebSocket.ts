@@ -35,8 +35,9 @@ export function applyWsMessage(s: MessageStore, msg: WSMessage) {
       break
     }
     case 'finding_updated': {
-      const d = msg.data as { id: string; status: string }
-      s.updateFinding(d.id, { status: d.status as 'dismissed' })
+      const d = msg.data as { id: string } & Record<string, unknown>
+      const { id, ...updates } = d
+      s.updateFinding(id, updates as Parameters<typeof s.updateFinding>[1])
       break
     }
     case 'action_update': {

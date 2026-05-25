@@ -48,6 +48,25 @@ describe('applyWsMessage', () => {
     expect(store.setActiveTab).toHaveBeenCalledWith('findings')
   })
 
+  it('applies clustered finding updates without creating a new finding', () => {
+    const store = makeStore()
+
+    applyWsMessage(store, {
+      type: 'finding_updated',
+      data: {
+        id: 'f1',
+        occurrence_count: 3,
+        last_seen_at: '2026-05-25T20:00:00Z',
+      },
+    })
+
+    expect(store.updateFinding).toHaveBeenCalledWith('f1', {
+      occurrence_count: 3,
+      last_seen_at: '2026-05-25T20:00:00Z',
+    })
+    expect(store.addFinding).not.toHaveBeenCalled()
+  })
+
   it('records completed action updates in audit entries', () => {
     const store = makeStore()
     vi.stubGlobal('crypto', { randomUUID: () => 'audit-id-1' })

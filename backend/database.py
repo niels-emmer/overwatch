@@ -2,7 +2,7 @@ import os
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, DateTime, Text, func
+from sqlalchemy import String, DateTime, Text, Integer, text, func
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -33,6 +33,10 @@ class Finding(Base):
     root_cause: Mapped[str] = mapped_column(Text, nullable=True)
     raw_logs: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String, default="open")
+    fingerprint: Mapped[str] = mapped_column(String, nullable=True)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    occurrence_count: Mapped[int] = mapped_column(Integer, default=1)
 
     def to_dict(self) -> dict:
         return {
@@ -44,6 +48,10 @@ class Finding(Base):
             "root_cause": self.root_cause,
             "raw_logs": self.raw_logs,
             "status": self.status,
+            "fingerprint": self.fingerprint,
+            "first_seen_at": self.first_seen_at.isoformat() if self.first_seen_at else None,
+            "last_seen_at": self.last_seen_at.isoformat() if self.last_seen_at else None,
+            "occurrence_count": self.occurrence_count or 1,
         }
 
 
@@ -93,3 +101,23 @@ class AuditEntry(Base):
 async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await _migrate_findings(conn)
+
+
+async def _migrate_findings(conn) -> None:
+    # Lightweight migration support for SQLite deployments without alembic.
+    result = await conn.execute(text("PRAGMA table_info(findings)"))
+    columns = {row[1] for row in result.fetchall()}
+
+    if "fingerprint" not in columns:
+        await conn.execute(text("ALTER TABLE findings ADD COLUMN fingerprint VARCHAR"))
+    if "first_seen_at" not in columns:
+        await conn.execute(text("ALTER TABLE findings ADD COLUMN first_seen_at DATETIME"))
+    if "last_seen_at" not in columns:
+        await conn.execute(text("ALTER TABLE findings ADD COLUMN last_seen_at DATETIME"))
+    if "occurrence_count" not in columns:
+        await conn.execute(text("ALTER TABLE findings ADD COLUMN occurrence_count INTEGER DEFAULT 1"))
+
+    await conn.execute(text("UPDATE findings SET occurrence_count = 1 WHERE occurrence_count IS NULL"))
+    await conn.execute(text("UPDATE findings SET first_seen_at = detected_at WHERE first_seen_at IS NULL"))
+    await conn.execute(text("UPDATE findings SET last_seen_at = detected_at WHERE last_seen_at IS NULL"))

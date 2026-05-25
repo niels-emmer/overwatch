@@ -13,6 +13,7 @@ import ai_analyzer
 import action_executor
 from config import load_config
 from database import init_db, SessionLocal, Finding, Plan, AuditEntry
+from fingerprints import fingerprint_log_text, merge_finding
 from log_monitor import LogMonitor
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -52,8 +53,35 @@ monitor: LogMonitor | None = None
 
 
 async def on_finding(container_name: str, log_text: str, finding_id: str) -> None:
-    # DB-level guard: skip if an open finding for this container exists within the cooldown window.
-    # This catches cases where the monitor restarted and lost its in-memory cooldown state.
+    now = datetime.utcnow()
+    fingerprint = fingerprint_log_text(log_text)
+
+    # Merge repeated incidents by fingerprint before running any model analysis.
+    async with SessionLocal() as session:
+        existing_q = select(Finding).where(
+            Finding.container_name == container_name,
+            Finding.status == "open",
+            Finding.fingerprint == fingerprint,
+        ).order_by(desc(Finding.last_seen_at)).limit(1)
+        existing = (await session.execute(existing_q)).scalar_one_or_none()
+        if existing:
+            merge_finding(existing, log_text, now)
+            session.add(existing)
+            await session.commit()
+            await hub.broadcast(
+                {
+                    "type": "finding_updated",
+                    "data": {
+                        "id": existing.id,
+                        "occurrence_count": existing.occurrence_count,
+                        "last_seen_at": existing.last_seen_at.isoformat() if existing.last_seen_at else None,
+                        "raw_logs": existing.raw_logs,
+                    },
+                }
+            )
+            return
+
+    # DB-level cooldown guard for truly new incidents in the same container.
     cooldown_cutoff = datetime.utcnow() - timedelta(minutes=config.monitor.cooldown_minutes)
     async with SessionLocal() as session:
         q = select(Finding).where(
@@ -75,12 +103,16 @@ async def on_finding(container_name: str, log_text: str, finding_id: str) -> Non
     finding = Finding(
         id=finding_id,
         container_name=container_name,
-        detected_at=datetime.utcnow(),
+        detected_at=now,
         severity=result["severity"],
         summary=result["summary"],
         root_cause=result.get("root_cause"),
         raw_logs=log_text,
         status="open",
+        fingerprint=fingerprint,
+        first_seen_at=now,
+        last_seen_at=now,
+        occurrence_count=1,
     )
 
     async with SessionLocal() as session:

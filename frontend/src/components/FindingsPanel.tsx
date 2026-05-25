@@ -41,6 +41,12 @@ function FindingCard({ finding }: { finding: Finding }) {
         </span>
       </div>
       <p className="text-sm leading-snug">{finding.summary}</p>
+      {(finding.occurrence_count ?? 1) > 1 && (
+        <p className="text-xs text-gray-400 mt-1">
+          Seen {finding.occurrence_count} times
+          {finding.last_seen_at ? ` • last ${new Date(finding.last_seen_at).toLocaleTimeString()}` : ''}
+        </p>
+      )}
       {finding.plan && (
         <p className="text-xs text-blue-400 mt-1">
           Plan available — {finding.plan.proposed_actions.length} action(s)
