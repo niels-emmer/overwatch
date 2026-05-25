@@ -53,6 +53,19 @@ function FindingCard({ finding }: { finding: Finding }) {
           {typeof finding.anomaly_score === 'number' ? ` (score ${finding.anomaly_score.toFixed(2)})` : ''}
         </p>
       )}
+      {finding.incident_group && (
+        <p className="text-xs text-gray-500 mt-1">
+          Incident group: {finding.incident_group}
+          {typeof finding.correlation_confidence === 'number'
+            ? ` (${Math.round(finding.correlation_confidence * 100)}% confidence)`
+            : ''}
+        </p>
+      )}
+      {finding.blast_radius && finding.blast_radius.length > 0 && (
+        <p className="text-xs text-yellow-400 mt-1">
+          Impacted services: {finding.blast_radius.join(', ')}
+        </p>
+      )}
       {finding.plan && (
         <p className="text-xs text-blue-400 mt-1">
           Plan available — {finding.plan.proposed_actions.length} action(s)

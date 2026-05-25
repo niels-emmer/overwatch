@@ -9,6 +9,10 @@ monitor:
   finding_severity_threshold: WARNING  # generate a plan for WARNING and above
   cooldown_minutes: 10                 # suppress duplicate findings per container for this long
   anomaly_score_threshold: 2.0         # emit findings early when anomaly score crosses threshold
+  risk_score_threshold: 65.0           # emit pre-emptive warnings when risk exceeds this score
+  auto_remediation_profile: recommendation_only  # recommendation_only|conservative|default|aggressive
+  auto_remediation_window_minutes: 30
+  auto_remediation_max_per_window: 2
 
 allowed_actions:
   - type: docker_restart

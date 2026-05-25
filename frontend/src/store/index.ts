@@ -24,6 +24,8 @@ export interface ProposedAction {
   historical_success_rate?: number | null
   historical_sample_size?: number
   ranking_reason?: string
+  expected_effect?: string
+  abort_condition?: string
 }
 
 export interface PlanStep {
@@ -54,8 +56,25 @@ export interface Finding {
   last_seen_at?: string | null
   occurrence_count?: number
   anomaly_score?: number | null
+  risk_score?: number | null
+  risk_horizon_minutes?: number | null
   trigger_reasons?: string[]
+  incident_group?: string | null
+  correlation_confidence?: number | null
+  correlation_evidence?: string[]
+  blast_radius?: string[]
   plan?: Plan | null
+}
+
+export interface RiskSnapshot {
+  container_name: string
+  baseline?: number
+  suspicious_count?: number
+  score?: number
+  risk_score?: number
+  risk_horizon_minutes?: number
+  drift_ratio?: number
+  reasons?: string[]
 }
 
 export interface AuditEntry {
@@ -90,6 +109,8 @@ interface State {
   wsConnected: boolean
   aiDegraded: boolean
   serverUptimeSeconds: number | null
+  riskThreshold: number
+  riskSnapshots: RiskSnapshot[]
   actionUpdates: Record<string, ActionUpdate>
 
   setContainers: (containers: Container[]) => void
@@ -105,6 +126,7 @@ interface State {
   setWsConnected: (v: boolean) => void
   setAiDegraded: (v: boolean) => void
   setServerUptimeSeconds: (v: number | null) => void
+  setRiskState: (snapshots: RiskSnapshot[], threshold: number) => void
   setActionUpdate: (update: ActionUpdate) => void
 }
 
@@ -120,6 +142,8 @@ export const useStore = create<State>((set) => ({
   wsConnected: false,
   aiDegraded: false,
   serverUptimeSeconds: null,
+  riskThreshold: 65,
+  riskSnapshots: [],
   actionUpdates: {},
 
   setContainers: (containers) => set({ containers }),
@@ -159,6 +183,7 @@ export const useStore = create<State>((set) => ({
   setWsConnected: (wsConnected) => set({ wsConnected }),
   setAiDegraded: (aiDegraded) => set({ aiDegraded }),
   setServerUptimeSeconds: (serverUptimeSeconds) => set({ serverUptimeSeconds }),
+  setRiskState: (riskSnapshots, riskThreshold) => set({ riskSnapshots, riskThreshold }),
   setActionUpdate: (update) =>
     set((s) => ({
       actionUpdates: {

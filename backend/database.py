@@ -39,6 +39,12 @@ class Finding(Base):
     occurrence_count: Mapped[int] = mapped_column(Integer, default=1)
     anomaly_score: Mapped[float] = mapped_column(nullable=True)
     trigger_reasons: Mapped[str] = mapped_column(Text, nullable=True)
+    risk_score: Mapped[float] = mapped_column(nullable=True)
+    risk_horizon_minutes: Mapped[int] = mapped_column(Integer, nullable=True)
+    incident_group: Mapped[str] = mapped_column(String, nullable=True)
+    correlation_confidence: Mapped[float] = mapped_column(nullable=True)
+    correlation_evidence: Mapped[str] = mapped_column(Text, nullable=True)
+    blast_radius: Mapped[str] = mapped_column(Text, nullable=True)
 
     def to_dict(self) -> dict:
         import json
@@ -57,7 +63,13 @@ class Finding(Base):
             "last_seen_at": self.last_seen_at.isoformat() if self.last_seen_at else None,
             "occurrence_count": self.occurrence_count or 1,
             "anomaly_score": self.anomaly_score,
+            "risk_score": self.risk_score,
+            "risk_horizon_minutes": self.risk_horizon_minutes,
             "trigger_reasons": json.loads(self.trigger_reasons) if self.trigger_reasons else [],
+            "incident_group": self.incident_group,
+            "correlation_confidence": self.correlation_confidence,
+            "correlation_evidence": json.loads(self.correlation_evidence) if self.correlation_evidence else [],
+            "blast_radius": json.loads(self.blast_radius) if self.blast_radius else [],
         }
 
 
@@ -136,6 +148,33 @@ class IncidentOutcome(Base):
         }
 
 
+class ServiceBaseline(Base):
+    __tablename__ = "service_baselines"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    container_name: Mapped[str] = mapped_column(String, unique=True)
+    baseline_rate: Mapped[float] = mapped_column(nullable=True)
+    drift_ratio: Mapped[float] = mapped_column(nullable=True)
+    risk_score: Mapped[float] = mapped_column(nullable=True)
+    risk_horizon_minutes: Mapped[int] = mapped_column(Integer, nullable=True)
+    suspicious_count: Mapped[int] = mapped_column(Integer, nullable=True)
+    reasons: Mapped[str] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    def to_dict(self) -> dict:
+        import json
+
+        return {
+            "container_name": self.container_name,
+            "baseline_rate": self.baseline_rate,
+            "drift_ratio": self.drift_ratio,
+            "risk_score": self.risk_score,
+            "risk_horizon_minutes": self.risk_horizon_minutes,
+            "suspicious_count": self.suspicious_count,
+            "reasons": json.loads(self.reasons) if self.reasons else [],
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -159,6 +198,18 @@ async def _migrate_findings(conn) -> None:
         await conn.execute(text("ALTER TABLE findings ADD COLUMN anomaly_score FLOAT"))
     if "trigger_reasons" not in columns:
         await conn.execute(text("ALTER TABLE findings ADD COLUMN trigger_reasons TEXT"))
+    if "risk_score" not in columns:
+        await conn.execute(text("ALTER TABLE findings ADD COLUMN risk_score FLOAT"))
+    if "risk_horizon_minutes" not in columns:
+        await conn.execute(text("ALTER TABLE findings ADD COLUMN risk_horizon_minutes INTEGER"))
+    if "incident_group" not in columns:
+        await conn.execute(text("ALTER TABLE findings ADD COLUMN incident_group VARCHAR"))
+    if "correlation_confidence" not in columns:
+        await conn.execute(text("ALTER TABLE findings ADD COLUMN correlation_confidence FLOAT"))
+    if "correlation_evidence" not in columns:
+        await conn.execute(text("ALTER TABLE findings ADD COLUMN correlation_evidence TEXT"))
+    if "blast_radius" not in columns:
+        await conn.execute(text("ALTER TABLE findings ADD COLUMN blast_radius TEXT"))
 
     await conn.execute(text("UPDATE findings SET occurrence_count = 1 WHERE occurrence_count IS NULL"))
     await conn.execute(text("UPDATE findings SET first_seen_at = detected_at WHERE first_seen_at IS NULL"))

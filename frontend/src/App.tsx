@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { useWebSocket } from './hooks/useWebSocket'
 import { useStore } from './store'
 import { ContainerGrid } from './components/ContainerGrid'
@@ -11,8 +12,35 @@ function StatusBar() {
   const aiDegraded = useStore((s) => s.aiDegraded)
   const containers = useStore((s) => s.containers)
   const serverUptimeSeconds = useStore((s) => s.serverUptimeSeconds)
+  const riskSnapshots = useStore((s) => s.riskSnapshots)
+  const riskThreshold = useStore((s) => s.riskThreshold)
   const findings = useStore((s) => s.findings)
   const openCount = findings.filter((f) => f.status === 'open').length
+  const atRiskCount = riskSnapshots.filter((r) => (r.risk_score ?? 0) >= riskThreshold).length
+  const [profile, setProfile] = useState('recommendation_only')
+
+  useEffect(() => {
+    fetch('/api/config')
+      .then((r) => r.json())
+      .then((cfg) => {
+        const next = String(cfg?.auto_remediation_profile ?? 'recommendation_only')
+        setProfile(next)
+      })
+      .catch(() => {})
+  }, [])
+
+  async function onProfileChange(next: string) {
+    setProfile(next)
+    try {
+      await fetch('/api/policy-template', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ template: next }),
+      })
+    } catch {
+      // keep optimistic selection; backend state will refresh on next load
+    }
+  }
 
   function formatUptime(seconds: number | null): string {
     if (seconds === null || Number.isNaN(seconds)) return '--'
@@ -43,6 +71,24 @@ function StatusBar() {
         <span className="text-xs px-2 py-0.5 rounded-full bg-gray-800 text-gray-300">
           uptime {formatUptime(serverUptimeSeconds)}
         </span>
+        <label className="text-xs text-gray-500 flex items-center gap-1">
+          policy
+          <select
+            value={profile}
+            onChange={(e) => onProfileChange(e.target.value)}
+            className="bg-gray-800 border border-gray-700 rounded px-1 py-0.5 text-gray-300"
+          >
+            <option value="recommendation_only">recommendation-only</option>
+            <option value="conservative">conservative</option>
+            <option value="default">default</option>
+            <option value="aggressive">aggressive</option>
+          </select>
+        </label>
+        {atRiskCount > 0 && (
+          <span className="text-xs bg-yellow-900 text-yellow-300 px-2 py-0.5 rounded-full">
+            {atRiskCount} at risk
+          </span>
+        )}
         {openCount > 0 && (
           <span className="text-xs bg-red-700 text-white px-2 py-0.5 rounded-full">
             {openCount} open finding{openCount !== 1 ? 's' : ''}

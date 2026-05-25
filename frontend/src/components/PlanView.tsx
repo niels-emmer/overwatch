@@ -133,6 +133,12 @@ function ActionButton({ action, planId, actionIndex }: {
         {action.ranking_reason && (
           <span className="text-[11px] text-gray-500">{action.ranking_reason}</span>
         )}
+        {action.expected_effect && (
+          <span className="text-[11px] text-gray-600">Effect: {action.expected_effect}</span>
+        )}
+        {action.abort_condition && (
+          <span className="text-[11px] text-gray-600">Abort if: {action.abort_condition}</span>
+        )}
       </span>
       <span className="ml-auto text-right">
         <span className="block text-xs text-gray-500">{action.container_name}</span>

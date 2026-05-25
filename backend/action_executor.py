@@ -34,3 +34,21 @@ def exec_in_container(container_name: str, command: str) -> dict:
     except DockerException as e:
         logger.error(f"Exec failed in {container_name}: {e}")
         return {"success": False, "output": str(e)}
+
+
+def get_container_runtime(container_name: str) -> dict:
+    try:
+        client = docker.from_env()
+        container = client.containers.get(container_name)
+        container.reload()
+        return {
+            "success": True,
+            "status": container.status,
+            "running": container.status == "running",
+            "restart_count": container.attrs.get("RestartCount", 0),
+        }
+    except NotFound:
+        return {"success": False, "status": "not_found", "running": False, "restart_count": 0}
+    except DockerException as e:
+        logger.error(f"Inspect failed for {container_name}: {e}")
+        return {"success": False, "status": "error", "running": False, "error": str(e), "restart_count": 0}

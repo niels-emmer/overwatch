@@ -75,6 +75,35 @@ describe('applyWsMessage', () => {
     )
   })
 
+  it('preserves correlation and blast-radius finding fields', () => {
+    const store = makeStore()
+
+    applyWsMessage(store, {
+      type: 'finding',
+      data: {
+        id: 'f3',
+        container_name: 'api',
+        detected_at: '2026-05-25T00:00:00Z',
+        severity: 'ERROR',
+        summary: 'dependency outage',
+        root_cause: 'db unavailable',
+        raw_logs: 'ERROR',
+        status: 'open',
+        incident_group: 'inc-a1b2c3',
+        correlation_confidence: 0.82,
+        blast_radius: ['worker', 'web'],
+      },
+    })
+
+    expect(store.addFinding).toHaveBeenCalledWith(
+      expect.objectContaining({
+        incident_group: 'inc-a1b2c3',
+        correlation_confidence: 0.82,
+        blast_radius: ['worker', 'web'],
+      }),
+    )
+  })
+
   it('applies clustered finding updates without creating a new finding', () => {
     const store = makeStore()
 

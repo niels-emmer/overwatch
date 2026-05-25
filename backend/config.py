@@ -18,6 +18,10 @@ class MonitorConfig:
     finding_severity_threshold: str = "WARNING"
     cooldown_minutes: int = 10
     anomaly_score_threshold: float = 2.0
+    risk_score_threshold: float = 65.0
+    auto_remediation_profile: str = "recommendation_only"
+    auto_remediation_window_minutes: int = 30
+    auto_remediation_max_per_window: int = 2
 
 
 @dataclass
@@ -70,6 +74,10 @@ def load_config(path: str = "/app/config/overwatch.yaml") -> Config:
             finding_severity_threshold=mon.get("finding_severity_threshold", cfg.monitor.finding_severity_threshold),
             cooldown_minutes=mon.get("cooldown_minutes", cfg.monitor.cooldown_minutes),
             anomaly_score_threshold=mon.get("anomaly_score_threshold", cfg.monitor.anomaly_score_threshold),
+            risk_score_threshold=mon.get("risk_score_threshold", cfg.monitor.risk_score_threshold),
+            auto_remediation_profile=mon.get("auto_remediation_profile", cfg.monitor.auto_remediation_profile),
+            auto_remediation_window_minutes=mon.get("auto_remediation_window_minutes", cfg.monitor.auto_remediation_window_minutes),
+            auto_remediation_max_per_window=mon.get("auto_remediation_max_per_window", cfg.monitor.auto_remediation_max_per_window),
         )
     if actions := raw.get("allowed_actions"):
         cfg.allowed_actions = [

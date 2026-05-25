@@ -126,6 +126,22 @@ export function useWebSocket() {
         })
     }, 10000)
 
+    const riskTimer = setInterval(() => {
+      fetch('/api/risk')
+        .then((r) => r.json())
+        .then((payload) => {
+          const snapshots = Array.isArray(payload?.containers) ? payload.containers : []
+          const threshold = Number(payload?.risk_threshold)
+          useStore.getState().setRiskState(
+            snapshots,
+            Number.isFinite(threshold) ? threshold : 65,
+          )
+        })
+        .catch(() => {
+          useStore.getState().setRiskState([], 65)
+        })
+    }, 10000)
+
     // Prime uptime on connect so the bar is populated quickly.
     fetch('/api/server-status')
       .then((r) => r.json())
@@ -135,6 +151,20 @@ export function useWebSocket() {
       })
       .catch(() => {
         useStore.getState().setServerUptimeSeconds(null)
+      })
+
+    fetch('/api/risk')
+      .then((r) => r.json())
+      .then((payload) => {
+        const snapshots = Array.isArray(payload?.containers) ? payload.containers : []
+        const threshold = Number(payload?.risk_threshold)
+        useStore.getState().setRiskState(
+          snapshots,
+          Number.isFinite(threshold) ? threshold : 65,
+        )
+      })
+      .catch(() => {
+        useStore.getState().setRiskState([], 65)
       })
 
     // Fetch initial data
@@ -155,6 +185,7 @@ export function useWebSocket() {
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current)
       clearInterval(healthTimer)
       clearInterval(uptimeTimer)
+      clearInterval(riskTimer)
       wsRef.current?.close()
     }
   }, [])

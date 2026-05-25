@@ -92,6 +92,8 @@ def rank_actions(
             "historical_success_rate": round(success_rate, 3) if success_rate is not None else None,
             "historical_sample_size": total,
             "ranking_reason": reason,
+            "expected_effect": "Restore service stability and reduce recurring error volume.",
+            "abort_condition": "Abort if this action increases error rate or restarts repeatedly.",
         }
         decorated.append((score, -idx, enriched))
 

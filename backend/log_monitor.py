@@ -82,6 +82,7 @@ class LogMonitor:
         self._on_finding: Callable[[str, str, str, dict], Awaitable[None]] | None = None
         self._anomaly = AnomalyScorer(
             anomaly_threshold=self._config.monitor.anomaly_score_threshold,
+            risk_threshold=self._config.monitor.risk_score_threshold,
         )
 
     def set_finding_callback(self, cb: Callable[[str, str, str, dict], Awaitable[None]]) -> None:
@@ -89,6 +90,9 @@ class LogMonitor:
         self._on_finding = cb
 
     def anomaly_snapshot(self, container_name: str | None = None) -> dict:
+        return self._anomaly.snapshot(container_name)
+
+    def risk_snapshot(self, container_name: str | None = None) -> dict:
         return self._anomaly.snapshot(container_name)
 
     async def start(self) -> None:
@@ -206,6 +210,10 @@ class LogMonitor:
                 self._windows[container_name] = []
                 metadata = {
                     "anomaly_score": anomaly.score,
+                    "risk_score": anomaly.risk_score,
+                    "risk_horizon_minutes": anomaly.risk_horizon_minutes,
+                    "baseline_rate": anomaly.baseline,
+                    "drift_ratio": anomaly.drift_ratio,
                     "trigger_reasons": list(anomaly.reasons),
                     "suspicious_count": anomaly.suspicious_count,
                     "context": self._build_context(container_name, [line for _, line in recent]),
