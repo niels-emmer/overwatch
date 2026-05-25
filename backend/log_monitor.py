@@ -5,6 +5,7 @@ import threading
 import time
 import uuid
 from collections import defaultdict
+from collections import deque
 from datetime import datetime
 from typing import Callable, Awaitable
 
@@ -74,6 +75,8 @@ class LogMonitor:
         self._broadcast = broadcast
         self._streams: dict[str, ContainerLogStream] = {}
         self._windows: dict[str, list[tuple[float, str]]] = defaultdict(list)
+        self._recent_logs: dict[str, deque[str]] = defaultdict(lambda: deque(maxlen=120))
+        self._containers: list[dict] = []
         self._loop: asyncio.AbstractEventLoop | None = None
         self._running = False
         self._on_finding: Callable[[str, str, str, dict], Awaitable[None]] | None = None
@@ -137,6 +140,7 @@ class LogMonitor:
                 "type": "container_status",
                 "data": {"containers": containers},
             })
+            self._containers = containers
             await asyncio.sleep(10)
 
     async def _drain_stream(self, container_id: str, container_name: str, stream: ContainerLogStream) -> None:
@@ -155,6 +159,7 @@ class LogMonitor:
                 "type": "log_line",
                 "data": {"container": container_name, "level": level, "text": text, "ts": ts},
             })
+            self._recent_logs[container_name].append(text)
 
             if is_suspicious(text):
                 self._windows[container_name].append((time.time(), text))
@@ -203,5 +208,38 @@ class LogMonitor:
                     "anomaly_score": anomaly.score,
                     "trigger_reasons": list(anomaly.reasons),
                     "suspicious_count": anomaly.suspicious_count,
+                    "context": self._build_context(container_name, [line for _, line in recent]),
                 }
                 asyncio.create_task(self._on_finding(container_name, log_text, finding_id, metadata))
+
+    def _build_context(self, container_name: str, recent_lines: list[str]) -> dict:
+        container = next((c for c in self._containers if c.get("name") == container_name), {})
+
+        stack_prefix = ""
+        parts = container_name.split("-")
+        if len(parts) >= 2:
+            stack_prefix = "-".join(parts[:-1])
+
+        peers = []
+        if stack_prefix:
+            peers = [
+                c["name"]
+                for c in self._containers
+                if c.get("name", "").startswith(f"{stack_prefix}-") and c.get("name") != container_name
+            ][:6]
+
+        peer_logs = {
+            peer: list(self._recent_logs.get(peer, []))[-5:]
+            for peer in peers
+        }
+
+        return {
+            "container": {
+                "name": container_name,
+                "status": container.get("status"),
+                "image": container.get("image"),
+            },
+            "recent_error_lines": recent_lines[-12:],
+            "peer_containers": peers,
+            "peer_recent_logs": peer_logs,
+        }

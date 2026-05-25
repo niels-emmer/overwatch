@@ -96,7 +96,12 @@ async def on_finding(container_name: str, log_text: str, finding_id: str, metada
             logger.debug(f"Suppressing duplicate finding for {container_name} — open finding within cooldown window")
             return
 
-    result = await ai_analyzer.analyze_logs(container_name, log_text, config)
+    result = await ai_analyzer.analyze_logs(
+        container_name,
+        log_text,
+        config,
+        context=metadata.get("context"),
+    )
     if not result:
         return
 
@@ -133,11 +138,11 @@ async def on_finding(container_name: str, log_text: str, finding_id: str, metada
     await hub.broadcast({"type": "finding", "data": finding.to_dict()})
 
     if sev_val >= threshold:
-        asyncio.create_task(generate_plan_for(finding_id, container_name, result))
+        asyncio.create_task(generate_plan_for(finding_id, container_name, result, metadata.get("context")))
 
 
-async def generate_plan_for(finding_id: str, container_name: str, finding_data: dict) -> None:
-    plan_data = await ai_analyzer.generate_plan(finding_data, container_name, config)
+async def generate_plan_for(finding_id: str, container_name: str, finding_data: dict, context: dict | None = None) -> None:
+    plan_data = await ai_analyzer.generate_plan(finding_data, container_name, config, context=context)
     if not plan_data:
         return
 

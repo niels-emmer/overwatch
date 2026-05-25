@@ -6,6 +6,7 @@ import re
 import httpx
 
 from config import Config
+from prompt_context import build_context_block
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,7 @@ def _extract_json(text: str) -> dict:
     return {}
 
 
-async def analyze_logs(container_name: str, log_text: str, config: Config) -> dict | None:
+async def analyze_logs(container_name: str, log_text: str, config: Config, context: dict | None = None) -> dict | None:
     model = config.ollama.analysis_model
     prefix = _no_think_prefix(model)
 
@@ -82,7 +83,12 @@ async def analyze_logs(container_name: str, log_text: str, config: Config) -> di
         "confidence (0.0 to 1.0). "
         "Return ONLY valid JSON, no markdown, no explanation."
     )
-    user = f"{prefix}Container: {container_name}\n\nLogs:\n{log_text}"
+    context_block = build_context_block(context)
+    user = (
+        f"{prefix}Container: {container_name}\n\n"
+        f"Context:\n{context_block}\n\n"
+        f"Logs:\n{log_text}"
+    )
 
     result = await _chat(model, system, user, config.ollama.host)
     if not result:
@@ -101,7 +107,7 @@ async def analyze_logs(container_name: str, log_text: str, config: Config) -> di
     }
 
 
-async def generate_plan(finding: dict, container_name: str, config: Config) -> dict | None:
+async def generate_plan(finding: dict, container_name: str, config: Config, context: dict | None = None) -> dict | None:
     model = config.ollama.planning_model
     prefix = _no_think_prefix(model)
 
@@ -118,11 +124,13 @@ async def generate_plan(finding: dict, container_name: str, config: Config) -> d
         "for connectivity checks. Use only POSIX shell builtins and tools present in busybox/alpine by default. "
         "Return ONLY valid JSON."
     )
+    context_block = build_context_block(context)
     user = (
         f"{prefix}Container: {container_name}\n"
         f"Severity: {finding['severity']}\n"
         f"Summary: {finding['summary']}\n"
         f"Root cause: {finding.get('root_cause', 'unknown')}\n\n"
+        f"Context:\n{context_block}\n\n"
         "Generate a diagnostic plan and proposed fix actions."
     )
 

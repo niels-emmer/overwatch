@@ -34,6 +34,31 @@ async def test_analyze_logs_stub_contract() -> None:
 
 
 @pytest.mark.asyncio
+async def test_analyze_logs_accepts_context_payload() -> None:
+    cfg = SimpleNamespace(
+        ollama=SimpleNamespace(
+            analysis_model="qwen3:8b",
+            planning_model="devstral-small-2",
+            host="http://localhost:11434",
+        )
+    )
+
+    result = await ai_analyzer.analyze_logs(
+        container_name="api",
+        log_text="ERROR: connection timeout",
+        config=cfg,
+        context={
+            "container": {"status": "running"},
+            "peer_containers": ["db"],
+            "recent_error_lines": ["ERROR: timeout"],
+        },
+    )
+
+    assert result is not None
+    assert result["severity"] in {"INFO", "WARNING", "ERROR", "CRITICAL"}
+
+
+@pytest.mark.asyncio
 async def test_generate_plan_stub_contract() -> None:
     cfg = SimpleNamespace(
         ollama=SimpleNamespace(
