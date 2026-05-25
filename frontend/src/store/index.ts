@@ -84,6 +84,7 @@ interface State {
   sidebarFilter: 'all' | 'unhealthy'
   wsConnected: boolean
   aiDegraded: boolean
+  serverUptimeSeconds: number | null
   actionUpdates: Record<string, ActionUpdate>
 
   setContainers: (containers: Container[]) => void
@@ -98,6 +99,7 @@ interface State {
   setSidebarFilter: (f: 'all' | 'unhealthy') => void
   setWsConnected: (v: boolean) => void
   setAiDegraded: (v: boolean) => void
+  setServerUptimeSeconds: (v: number | null) => void
   setActionUpdate: (update: ActionUpdate) => void
 }
 
@@ -112,6 +114,7 @@ export const useStore = create<State>((set) => ({
   sidebarFilter: 'all',
   wsConnected: false,
   aiDegraded: false,
+  serverUptimeSeconds: null,
   actionUpdates: {},
 
   setContainers: (containers) => set({ containers }),
@@ -150,6 +153,7 @@ export const useStore = create<State>((set) => ({
   setSidebarFilter: (sidebarFilter) => set({ sidebarFilter }),
   setWsConnected: (wsConnected) => set({ wsConnected }),
   setAiDegraded: (aiDegraded) => set({ aiDegraded }),
+  setServerUptimeSeconds: (serverUptimeSeconds) => set({ serverUptimeSeconds }),
   setActionUpdate: (update) =>
     set((s) => ({
       actionUpdates: {

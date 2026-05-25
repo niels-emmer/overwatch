@@ -9,8 +9,21 @@ import { AuditLog } from './components/AuditLog'
 function StatusBar() {
   const wsConnected = useStore((s) => s.wsConnected)
   const aiDegraded = useStore((s) => s.aiDegraded)
+  const containers = useStore((s) => s.containers)
+  const serverUptimeSeconds = useStore((s) => s.serverUptimeSeconds)
   const findings = useStore((s) => s.findings)
   const openCount = findings.filter((f) => f.status === 'open').length
+
+  function formatUptime(seconds: number | null): string {
+    if (seconds === null || Number.isNaN(seconds)) return '--'
+    const total = Math.max(0, Math.floor(seconds))
+    const h = Math.floor(total / 3600)
+    const m = Math.floor((total % 3600) / 60)
+    const s = total % 60
+    if (h > 0) return `${h}h ${m}m ${s}s`
+    if (m > 0) return `${m}m ${s}s`
+    return `${s}s`
+  }
 
   return (
     <header className="flex items-center gap-4 px-4 py-2 bg-gray-900 border-b border-gray-800 shrink-0">
@@ -23,11 +36,19 @@ function StatusBar() {
       <span className={`text-xs px-2 py-0.5 rounded-full ${aiDegraded ? 'bg-yellow-900 text-yellow-400' : 'bg-gray-800 text-gray-400'}`}>
         {aiDegraded ? 'ai degraded' : 'ai healthy'}
       </span>
-      {openCount > 0 && (
-        <span className="ml-auto text-xs bg-red-700 text-white px-2 py-0.5 rounded-full">
-          {openCount} open finding{openCount !== 1 ? 's' : ''}
+      <div className="ml-auto flex items-center gap-2">
+        <span className="text-xs px-2 py-0.5 rounded-full bg-gray-800 text-gray-300">
+          {containers.length} container{containers.length !== 1 ? 's' : ''}
         </span>
-      )}
+        <span className="text-xs px-2 py-0.5 rounded-full bg-gray-800 text-gray-300">
+          uptime {formatUptime(serverUptimeSeconds)}
+        </span>
+        {openCount > 0 && (
+          <span className="text-xs bg-red-700 text-white px-2 py-0.5 rounded-full">
+            {openCount} open finding{openCount !== 1 ? 's' : ''}
+          </span>
+        )}
+      </div>
     </header>
   )
 }

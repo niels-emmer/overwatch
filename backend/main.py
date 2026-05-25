@@ -53,6 +53,7 @@ class WSHub:
 
 hub = WSHub()
 monitor: LogMonitor | None = None
+server_started_at: datetime | None = None
 
 
 class FindingStatusUpdate(BaseModel):
@@ -175,8 +176,9 @@ async def generate_plan_for(finding_id: str, container_name: str, finding_data: 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global monitor
+    global monitor, server_started_at
     await init_db()
+    server_started_at = datetime.utcnow()
     monitor = LogMonitor(config, hub.broadcast)
     monitor.set_finding_callback(on_finding)
     await monitor.start()
@@ -420,3 +422,13 @@ async def get_anomaly(container_name: str | None = None):
 @app.get("/api/ai-health")
 async def get_ai_health():
     return ai_analyzer.ai_health_snapshot()
+
+
+@app.get("/api/server-status")
+async def get_server_status():
+    started = server_started_at or datetime.utcnow()
+    uptime = max(0, int((datetime.utcnow() - started).total_seconds()))
+    return {
+        "started_at": started.isoformat(),
+        "uptime_seconds": uptime,
+    }

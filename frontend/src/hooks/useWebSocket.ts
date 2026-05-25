@@ -114,6 +114,29 @@ export function useWebSocket() {
         })
     }, 10000)
 
+    const uptimeTimer = setInterval(() => {
+      fetch('/api/server-status')
+        .then((r) => r.json())
+        .then((status) => {
+          const seconds = Number(status?.uptime_seconds)
+          useStore.getState().setServerUptimeSeconds(Number.isFinite(seconds) ? seconds : null)
+        })
+        .catch(() => {
+          useStore.getState().setServerUptimeSeconds(null)
+        })
+    }, 10000)
+
+    // Prime uptime on connect so the bar is populated quickly.
+    fetch('/api/server-status')
+      .then((r) => r.json())
+      .then((status) => {
+        const seconds = Number(status?.uptime_seconds)
+        useStore.getState().setServerUptimeSeconds(Number.isFinite(seconds) ? seconds : null)
+      })
+      .catch(() => {
+        useStore.getState().setServerUptimeSeconds(null)
+      })
+
     // Fetch initial data
     fetch('/api/findings')
       .then((r) => r.json())
@@ -131,6 +154,7 @@ export function useWebSocket() {
       unmounted = true
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current)
       clearInterval(healthTimer)
+      clearInterval(uptimeTimer)
       wsRef.current?.close()
     }
   }, [])
