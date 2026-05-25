@@ -19,6 +19,11 @@ export interface ProposedAction {
   action_type: 'docker_restart' | 'docker_exec'
   command: string | null
   container_name: string
+  action_signature?: string
+  historical_score?: number
+  historical_success_rate?: number | null
+  historical_sample_size?: number
+  ranking_reason?: string
 }
 
 export interface PlanStep {

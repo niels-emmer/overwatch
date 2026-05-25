@@ -113,4 +113,44 @@ describe('applyWsMessage', () => {
     expect(store.addAuditEntry).toHaveBeenCalledTimes(1)
     vi.unstubAllGlobals()
   })
+
+  it('passes action ranking metadata through plan_ready', () => {
+    const store = makeStore()
+
+    applyWsMessage(store, {
+      type: 'plan_ready',
+      data: {
+        id: 'p1',
+        finding_id: 'f1',
+        created_at: '2026-05-25T00:00:00Z',
+        steps: [],
+        status: 'pending',
+        proposed_actions: [
+          {
+            label: 'Restart API',
+            action_type: 'docker_restart',
+            command: null,
+            container_name: 'api',
+            historical_score: 0.82,
+            historical_success_rate: 0.86,
+            historical_sample_size: 7,
+            ranking_reason: '6/7 successful; last seen 1h ago',
+          },
+        ],
+      },
+    })
+
+    expect(store.attachPlan).toHaveBeenCalledWith(
+      expect.objectContaining({
+        proposed_actions: [
+          expect.objectContaining({
+            historical_score: 0.82,
+            historical_success_rate: 0.86,
+            historical_sample_size: 7,
+            ranking_reason: '6/7 successful; last seen 1h ago',
+          }),
+        ],
+      }),
+    )
+  })
 })

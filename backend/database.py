@@ -104,6 +104,38 @@ class AuditEntry(Base):
         }
 
 
+class IncidentOutcome(Base):
+    __tablename__ = "incident_outcomes"
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    fingerprint: Mapped[str] = mapped_column(String)
+    container_name: Mapped[str] = mapped_column(String)
+    action_type: Mapped[str] = mapped_column(String)
+    action_signature: Mapped[str] = mapped_column(String)
+    success_count: Mapped[int] = mapped_column(Integer, default=0)
+    failure_count: Mapped[int] = mapped_column(Integer, default=0)
+    timeout_count: Mapped[int] = mapped_column(Integer, default=0)
+    abort_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_status: Mapped[str] = mapped_column(String, nullable=True)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "fingerprint": self.fingerprint,
+            "container_name": self.container_name,
+            "action_type": self.action_type,
+            "action_signature": self.action_signature,
+            "success_count": self.success_count,
+            "failure_count": self.failure_count,
+            "timeout_count": self.timeout_count,
+            "abort_count": self.abort_count,
+            "last_status": self.last_status,
+            "first_seen_at": self.first_seen_at.isoformat() if self.first_seen_at else None,
+            "last_seen_at": self.last_seen_at.isoformat() if self.last_seen_at else None,
+        }
+
+
 async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

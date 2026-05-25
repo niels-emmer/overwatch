@@ -9,12 +9,14 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Back
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import select, desc
+from sqlalchemy.ext.asyncio import AsyncSession
 
 import ai_analyzer
 import action_executor
+from action_ranking import action_signature, classify_outcome, rank_actions, OutcomeSnapshot
 from action_policy import evaluate_policy
 from config import load_config
-from database import init_db, SessionLocal, Finding, Plan, AuditEntry
+from database import init_db, SessionLocal, Finding, Plan, AuditEntry, IncidentOutcome
 from fingerprints import fingerprint_log_text, merge_finding
 from lifecycle import is_valid_transition, status_after_successful_action, status_for_regression
 from log_monitor import LogMonitor
@@ -158,12 +160,21 @@ async def generate_plan_for(finding_id: str, container_name: str, finding_data: 
     if not plan_data:
         return
 
+    async with SessionLocal() as session:
+        finding = await session.get(Finding, finding_id)
+        snapshots = await _load_outcome_snapshots(
+            session,
+            finding.fingerprint if finding else None,
+            container_name,
+        )
+    ranked_actions = rank_actions(plan_data.get("proposed_actions", []), snapshots)
+
     plan = Plan(
         id=str(uuid.uuid4()),
         finding_id=finding_id,
         created_at=datetime.utcnow(),
         steps=json.dumps(plan_data["steps"]),
-        proposed_actions=json.dumps(plan_data["proposed_actions"]),
+        proposed_actions=json.dumps(ranked_actions),
         status="pending",
     )
 
@@ -346,8 +357,22 @@ async def _run_action(plan_id: str, action_index: int, action_type: str, contain
         result = {"success": False, "output": f"Unknown action type: {action_type}"}
 
     status = "done" if result["success"] else "failed"
+    outcome_status = classify_outcome(status, result.get("output"))
 
     async with SessionLocal() as session:
+        plan = await session.get(Plan, plan_id)
+        finding = await session.get(Finding, plan.finding_id) if plan else None
+
+        if finding and finding.fingerprint:
+            await _record_incident_outcome(
+                session,
+                fingerprint=finding.fingerprint,
+                container_name=finding.container_name,
+                action_type=action_type,
+                action_sig=action_signature(action_type, container_name, command),
+                outcome_status=outcome_status,
+            )
+
         audit = AuditEntry(
             event_type="action_executed",
             container_name=container_name,
@@ -390,6 +415,72 @@ async def _run_action(plan_id: str, action_index: int, action_type: str, contain
             "label": action.get("label"),
         },
     })
+
+
+async def _load_outcome_snapshots(
+    session: AsyncSession,
+    fingerprint: str | None,
+    container_name: str,
+) -> dict[str, OutcomeSnapshot]:
+    if not fingerprint:
+        return {}
+
+    q = select(IncidentOutcome).where(
+        IncidentOutcome.fingerprint == fingerprint,
+        IncidentOutcome.container_name == container_name,
+    )
+    outcomes = (await session.execute(q)).scalars().all()
+    return {
+        row.action_signature: OutcomeSnapshot(
+            success_count=row.success_count or 0,
+            failure_count=row.failure_count or 0,
+            timeout_count=row.timeout_count or 0,
+            abort_count=row.abort_count or 0,
+            last_seen_at=row.last_seen_at,
+        )
+        for row in outcomes
+    }
+
+
+async def _record_incident_outcome(
+    session: AsyncSession,
+    fingerprint: str,
+    container_name: str,
+    action_type: str,
+    action_sig: str,
+    outcome_status: str,
+) -> None:
+    q = select(IncidentOutcome).where(
+        IncidentOutcome.fingerprint == fingerprint,
+        IncidentOutcome.container_name == container_name,
+        IncidentOutcome.action_signature == action_sig,
+    ).limit(1)
+    existing = (await session.execute(q)).scalar_one_or_none()
+
+    if not existing:
+        existing = IncidentOutcome(
+            fingerprint=fingerprint,
+            container_name=container_name,
+            action_type=action_type,
+            action_signature=action_sig,
+            success_count=0,
+            failure_count=0,
+            timeout_count=0,
+            abort_count=0,
+        )
+
+    if outcome_status == "success":
+        existing.success_count = (existing.success_count or 0) + 1
+    elif outcome_status == "timeout":
+        existing.timeout_count = (existing.timeout_count or 0) + 1
+    elif outcome_status == "abort":
+        existing.abort_count = (existing.abort_count or 0) + 1
+    else:
+        existing.failure_count = (existing.failure_count or 0) + 1
+
+    existing.last_status = outcome_status
+    existing.last_seen_at = datetime.utcnow()
+    session.add(existing)
 
 
 @app.get("/api/audit")

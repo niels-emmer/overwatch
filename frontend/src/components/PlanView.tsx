@@ -117,6 +117,10 @@ function ActionButton({ action, planId, actionIndex }: {
   }
 
   const icon = action.action_type === 'docker_restart' ? '↻' : '▶'
+  const confidence = action.historical_success_rate == null
+    ? 'n/a'
+    : `${Math.round(action.historical_success_rate * 100)}%`
+  const sampleSize = action.historical_sample_size ?? 0
 
   return (
     <button
@@ -124,8 +128,16 @@ function ActionButton({ action, planId, actionIndex }: {
       className="w-full flex items-center gap-2 px-3 py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 hover:border-gray-600 rounded text-sm text-gray-200 transition-colors"
     >
       <span className="text-blue-400">{icon}</span>
-      <span>{action.label}</span>
-      <span className="ml-auto text-xs text-gray-500">{action.container_name}</span>
+      <span className="flex flex-col text-left">
+        <span>{action.label}</span>
+        {action.ranking_reason && (
+          <span className="text-[11px] text-gray-500">{action.ranking_reason}</span>
+        )}
+      </span>
+      <span className="ml-auto text-right">
+        <span className="block text-xs text-gray-500">{action.container_name}</span>
+        <span className="block text-[11px] text-gray-600">{confidence} / n={sampleSize}</span>
+      </span>
     </button>
   )
 }
