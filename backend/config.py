@@ -17,6 +17,7 @@ class MonitorConfig:
     min_error_lines_to_trigger: int = 3
     finding_severity_threshold: str = "WARNING"
     cooldown_minutes: int = 10
+    anomaly_score_threshold: float = 2.0
 
 
 @dataclass
@@ -68,6 +69,7 @@ def load_config(path: str = "/app/config/overwatch.yaml") -> Config:
             min_error_lines_to_trigger=mon.get("min_error_lines_to_trigger", cfg.monitor.min_error_lines_to_trigger),
             finding_severity_threshold=mon.get("finding_severity_threshold", cfg.monitor.finding_severity_threshold),
             cooldown_minutes=mon.get("cooldown_minutes", cfg.monitor.cooldown_minutes),
+            anomaly_score_threshold=mon.get("anomaly_score_threshold", cfg.monitor.anomaly_score_threshold),
         )
     if actions := raw.get("allowed_actions"):
         cfg.allowed_actions = [

@@ -48,6 +48,33 @@ describe('applyWsMessage', () => {
     expect(store.setActiveTab).toHaveBeenCalledWith('findings')
   })
 
+  it('preserves trigger reasons on finding payloads', () => {
+    const store = makeStore()
+
+    applyWsMessage(store, {
+      type: 'finding',
+      data: {
+        id: 'f2',
+        container_name: 'worker',
+        detected_at: '2026-05-25T00:00:00Z',
+        severity: 'WARNING',
+        summary: 'retry storm',
+        root_cause: 'queue delay',
+        raw_logs: 'WARN',
+        status: 'open',
+        anomaly_score: 2.1,
+        trigger_reasons: ['rate_spike', 'severity_warning'],
+      },
+    })
+
+    expect(store.addFinding).toHaveBeenCalledWith(
+      expect.objectContaining({
+        anomaly_score: 2.1,
+        trigger_reasons: ['rate_spike', 'severity_warning'],
+      }),
+    )
+  })
+
   it('applies clustered finding updates without creating a new finding', () => {
     const store = makeStore()
 

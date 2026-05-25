@@ -37,8 +37,12 @@ class Finding(Base):
     first_seen_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     occurrence_count: Mapped[int] = mapped_column(Integer, default=1)
+    anomaly_score: Mapped[float] = mapped_column(nullable=True)
+    trigger_reasons: Mapped[str] = mapped_column(Text, nullable=True)
 
     def to_dict(self) -> dict:
+        import json
+
         return {
             "id": self.id,
             "container_name": self.container_name,
@@ -52,6 +56,8 @@ class Finding(Base):
             "first_seen_at": self.first_seen_at.isoformat() if self.first_seen_at else None,
             "last_seen_at": self.last_seen_at.isoformat() if self.last_seen_at else None,
             "occurrence_count": self.occurrence_count or 1,
+            "anomaly_score": self.anomaly_score,
+            "trigger_reasons": json.loads(self.trigger_reasons) if self.trigger_reasons else [],
         }
 
 
@@ -117,6 +123,10 @@ async def _migrate_findings(conn) -> None:
         await conn.execute(text("ALTER TABLE findings ADD COLUMN last_seen_at DATETIME"))
     if "occurrence_count" not in columns:
         await conn.execute(text("ALTER TABLE findings ADD COLUMN occurrence_count INTEGER DEFAULT 1"))
+    if "anomaly_score" not in columns:
+        await conn.execute(text("ALTER TABLE findings ADD COLUMN anomaly_score FLOAT"))
+    if "trigger_reasons" not in columns:
+        await conn.execute(text("ALTER TABLE findings ADD COLUMN trigger_reasons TEXT"))
 
     await conn.execute(text("UPDATE findings SET occurrence_count = 1 WHERE occurrence_count IS NULL"))
     await conn.execute(text("UPDATE findings SET first_seen_at = detected_at WHERE first_seen_at IS NULL"))

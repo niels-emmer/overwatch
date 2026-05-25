@@ -52,9 +52,11 @@ hub = WSHub()
 monitor: LogMonitor | None = None
 
 
-async def on_finding(container_name: str, log_text: str, finding_id: str) -> None:
+async def on_finding(container_name: str, log_text: str, finding_id: str, metadata: dict | None = None) -> None:
     now = datetime.utcnow()
     fingerprint = fingerprint_log_text(log_text)
+    metadata = metadata or {}
+    trigger_reasons = metadata.get("trigger_reasons", [])
 
     # Merge repeated incidents by fingerprint before running any model analysis.
     async with SessionLocal() as session:
@@ -82,6 +84,7 @@ async def on_finding(container_name: str, log_text: str, finding_id: str) -> Non
             return
 
     # DB-level cooldown guard for truly new incidents in the same container.
+    # Novel fingerprint events bypass this gate to avoid dropping new issues.
     cooldown_cutoff = datetime.utcnow() - timedelta(minutes=config.monitor.cooldown_minutes)
     async with SessionLocal() as session:
         q = select(Finding).where(
@@ -89,7 +92,7 @@ async def on_finding(container_name: str, log_text: str, finding_id: str) -> Non
             Finding.status == "open",
             Finding.detected_at >= cooldown_cutoff,
         ).limit(1)
-        if (await session.execute(q)).scalar_one_or_none():
+        if (await session.execute(q)).scalar_one_or_none() and "novel_fingerprint" not in trigger_reasons:
             logger.debug(f"Suppressing duplicate finding for {container_name} — open finding within cooldown window")
             return
 
@@ -113,6 +116,8 @@ async def on_finding(container_name: str, log_text: str, finding_id: str) -> Non
         first_seen_at=now,
         last_seen_at=now,
         occurrence_count=1,
+        anomaly_score=metadata.get("anomaly_score"),
+        trigger_reasons=json.dumps(trigger_reasons),
     )
 
     async with SessionLocal() as session:
@@ -120,7 +125,7 @@ async def on_finding(container_name: str, log_text: str, finding_id: str) -> Non
         audit = AuditEntry(
             event_type="finding_detected",
             container_name=container_name,
-            details=result["summary"],
+            details=f"{result['summary']} (reasons: {', '.join(trigger_reasons) if trigger_reasons else 'threshold'})",
         )
         session.add(audit)
         await session.commit()
@@ -316,3 +321,10 @@ async def get_config():
             {"type": a.type, "commands": a.commands} for a in config.allowed_actions
         ],
     }
+
+
+@app.get("/api/anomaly")
+async def get_anomaly(container_name: str | None = None):
+    if not monitor:
+        return {}
+    return monitor.anomaly_snapshot(container_name)

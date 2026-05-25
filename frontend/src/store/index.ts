@@ -48,6 +48,8 @@ export interface Finding {
   first_seen_at?: string | null
   last_seen_at?: string | null
   occurrence_count?: number
+  anomaly_score?: number | null
+  trigger_reasons?: string[]
   plan?: Plan | null
 }
 

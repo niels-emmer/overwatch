@@ -11,6 +11,7 @@ from typing import Callable, Awaitable
 import docker
 from docker.errors import DockerException
 
+from anomaly import AnomalyScorer
 from config import Config
 from error_detector import is_suspicious, detect_level
 
@@ -75,11 +76,17 @@ class LogMonitor:
         self._windows: dict[str, list[tuple[float, str]]] = defaultdict(list)
         self._loop: asyncio.AbstractEventLoop | None = None
         self._running = False
-        self._on_finding: Callable[[str, str, str], Awaitable[None]] | None = None
+        self._on_finding: Callable[[str, str, str, dict], Awaitable[None]] | None = None
+        self._anomaly = AnomalyScorer(
+            anomaly_threshold=self._config.monitor.anomaly_score_threshold,
+        )
 
-    def set_finding_callback(self, cb: Callable[[str, str, str], Awaitable[None]]) -> None:
-        """cb(container_name, log_text, finding_id)"""
+    def set_finding_callback(self, cb: Callable[[str, str, str, dict], Awaitable[None]]) -> None:
+        """cb(container_name, log_text, finding_id, metadata)"""
         self._on_finding = cb
+
+    def anomaly_snapshot(self, container_name: str | None = None) -> dict:
+        return self._anomaly.snapshot(container_name)
 
     async def start(self) -> None:
         self._loop = asyncio.get_running_loop()
@@ -167,10 +174,34 @@ class LogMonitor:
                 recent = [(ts, l) for ts, l in self._windows[container_name] if ts >= cutoff]
                 self._windows[container_name] = recent
 
-                if len(recent) < threshold or not self._on_finding:
+                if not recent or not self._on_finding:
+                    continue
+
+                levels = [detect_level(l) for _, l in recent]
+                max_level = "info"
+                if "critical" in levels:
+                    max_level = "critical"
+                elif "error" in levels:
+                    max_level = "error"
+                elif "warning" in levels:
+                    max_level = "warning"
+
+                anomaly = self._anomaly.evaluate(
+                    container_name=container_name,
+                    threshold=threshold,
+                    lines=[line for _, line in recent],
+                    max_level=max_level,
+                )
+
+                if not anomaly.should_emit:
                     continue
 
                 log_text = "\n".join(l for _, l in recent)
                 finding_id = str(uuid.uuid4())
                 self._windows[container_name] = []
-                asyncio.create_task(self._on_finding(container_name, log_text, finding_id))
+                metadata = {
+                    "anomaly_score": anomaly.score,
+                    "trigger_reasons": list(anomaly.reasons),
+                    "suspicious_count": anomaly.suspicious_count,
+                }
+                asyncio.create_task(self._on_finding(container_name, log_text, finding_id, metadata))

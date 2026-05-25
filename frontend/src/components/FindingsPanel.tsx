@@ -47,6 +47,12 @@ function FindingCard({ finding }: { finding: Finding }) {
           {finding.last_seen_at ? ` • last ${new Date(finding.last_seen_at).toLocaleTimeString()}` : ''}
         </p>
       )}
+      {finding.trigger_reasons && finding.trigger_reasons.length > 0 && (
+        <p className="text-xs text-gray-500 mt-1">
+          Trigger: {finding.trigger_reasons.join(', ')}
+          {typeof finding.anomaly_score === 'number' ? ` (score ${finding.anomaly_score.toFixed(2)})` : ''}
+        </p>
+      )}
       {finding.plan && (
         <p className="text-xs text-blue-400 mt-1">
           Plan available — {finding.plan.proposed_actions.length} action(s)
