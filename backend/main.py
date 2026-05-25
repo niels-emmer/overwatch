@@ -5,13 +5,14 @@ import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, BackgroundTasks
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, BackgroundTasks, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import select, desc
 
 import ai_analyzer
 import action_executor
+from action_policy import evaluate_policy
 from config import load_config
 from database import init_db, SessionLocal, Finding, Plan, AuditEntry
 from fingerprints import fingerprint_log_text, merge_finding
@@ -284,7 +285,12 @@ async def update_finding_status(finding_id: str, payload: FindingStatusUpdate):
 
 
 @app.post("/api/plans/{plan_id}/actions/{action_index}/execute")
-async def execute_action(plan_id: str, action_index: int, background_tasks: BackgroundTasks):
+async def execute_action(
+    plan_id: str,
+    action_index: int,
+    background_tasks: BackgroundTasks,
+    x_overwatch_high_approval: str | None = Header(default=None),
+):
     async with SessionLocal() as session:
         plan = await session.get(Plan, plan_id)
         if not plan:
@@ -300,6 +306,25 @@ async def execute_action(plan_id: str, action_index: int, background_tasks: Back
 
     if not config.is_action_allowed(action_type, command):
         raise HTTPException(403, f"Action not permitted: {action_type} {command}")
+
+    policy = evaluate_policy(
+        action_type,
+        command,
+        high_risk_approved=(x_overwatch_high_approval or "").lower() == "approved",
+    )
+    if not policy.allowed:
+        async with SessionLocal() as session:
+            session.add(
+                AuditEntry(
+                    event_type="action_policy_blocked",
+                    container_name=container_name,
+                    action=f"{action_type}: {command or container_name}",
+                    result=policy.risk,
+                    details=policy.reason,
+                )
+            )
+            await session.commit()
+        raise HTTPException(403, policy.reason)
 
     await hub.broadcast({
         "type": "action_update",
