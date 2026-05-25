@@ -43,7 +43,7 @@ export interface Finding {
   summary: string
   root_cause: string | null
   raw_logs: string
-  status: 'open' | 'resolved' | 'dismissed'
+  status: 'open' | 'investigating' | 'mitigated' | 'regressed' | 'resolved' | 'dismissed'
   fingerprint?: string | null
   first_seen_at?: string | null
   last_seen_at?: string | null

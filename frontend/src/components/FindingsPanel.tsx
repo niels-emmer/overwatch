@@ -61,6 +61,9 @@ function FindingCard({ finding }: { finding: Finding }) {
       {finding.status === 'dismissed' && (
         <span className="text-xs text-gray-600 mt-1 block">Dismissed</span>
       )}
+      {finding.status !== 'open' && finding.status !== 'dismissed' && (
+        <span className="text-xs text-gray-500 mt-1 block capitalize">Status: {finding.status}</span>
+      )}
       {finding.status === 'open' && (
         <button
           onClick={(e) => { e.stopPropagation(); dismiss() }}
@@ -85,7 +88,7 @@ export function FindingsPanel() {
     : findings
 
   const visible = filter === 'active'
-    ? byContainer.filter((f) => f.status === 'open')
+    ? byContainer.filter((f) => f.status !== 'dismissed' && f.status !== 'resolved')
     : byContainer
 
   const dismissedCount = byContainer.filter((f) => f.status === 'dismissed').length

@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from sqlalchemy import select, desc
 
 import ai_analyzer
@@ -14,6 +15,7 @@ import action_executor
 from config import load_config
 from database import init_db, SessionLocal, Finding, Plan, AuditEntry
 from fingerprints import fingerprint_log_text, merge_finding
+from lifecycle import is_valid_transition, status_after_successful_action, status_for_regression
 from log_monitor import LogMonitor
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -52,6 +54,10 @@ hub = WSHub()
 monitor: LogMonitor | None = None
 
 
+class FindingStatusUpdate(BaseModel):
+    status: str
+
+
 async def on_finding(container_name: str, log_text: str, finding_id: str, metadata: dict | None = None) -> None:
     now = datetime.utcnow()
     fingerprint = fingerprint_log_text(log_text)
@@ -62,12 +68,15 @@ async def on_finding(container_name: str, log_text: str, finding_id: str, metada
     async with SessionLocal() as session:
         existing_q = select(Finding).where(
             Finding.container_name == container_name,
-            Finding.status == "open",
             Finding.fingerprint == fingerprint,
+            Finding.status != "dismissed",
         ).order_by(desc(Finding.last_seen_at)).limit(1)
         existing = (await session.execute(existing_q)).scalar_one_or_none()
         if existing:
             merge_finding(existing, log_text, now)
+            regressed = status_for_regression(existing.status)
+            if regressed:
+                existing.status = regressed
             session.add(existing)
             await session.commit()
             await hub.broadcast(
@@ -75,6 +84,7 @@ async def on_finding(container_name: str, log_text: str, finding_id: str, metada
                     "type": "finding_updated",
                     "data": {
                         "id": existing.id,
+                        "status": existing.status,
                         "occurrence_count": existing.occurrence_count,
                         "last_seen_at": existing.last_seen_at.isoformat() if existing.last_seen_at else None,
                         "raw_logs": existing.raw_logs,
@@ -89,7 +99,7 @@ async def on_finding(container_name: str, log_text: str, finding_id: str, metada
     async with SessionLocal() as session:
         q = select(Finding).where(
             Finding.container_name == container_name,
-            Finding.status == "open",
+            Finding.status.in_(["open", "investigating", "regressed"]),
             Finding.detected_at >= cooldown_cutoff,
         ).limit(1)
         if (await session.execute(q)).scalar_one_or_none() and "novel_fingerprint" not in trigger_reasons:
@@ -248,6 +258,31 @@ async def dismiss_finding(finding_id: str):
     return {"ok": True}
 
 
+@app.post("/api/findings/{finding_id}/status")
+async def update_finding_status(finding_id: str, payload: FindingStatusUpdate):
+    async with SessionLocal() as session:
+        finding = await session.get(Finding, finding_id)
+        if not finding:
+            raise HTTPException(404, "Not found")
+
+        target = payload.status.strip().lower()
+        if not is_valid_transition(finding.status, target):
+            raise HTTPException(400, f"Invalid status transition: {finding.status} -> {target}")
+
+        finding.status = target
+        session.add(
+            AuditEntry(
+                event_type="finding_status_changed",
+                container_name=finding.container_name,
+                details=f"{finding_id}: {target}",
+            )
+        )
+        await session.commit()
+
+    await hub.broadcast({"type": "finding_updated", "data": {"id": finding_id, "status": target}})
+    return {"ok": True, "status": target}
+
+
 @app.post("/api/plans/{plan_id}/actions/{action_index}/execute")
 async def execute_action(plan_id: str, action_index: int, background_tasks: BackgroundTasks):
     async with SessionLocal() as session:
@@ -295,6 +330,28 @@ async def _run_action(plan_id: str, action_index: int, action_type: str, contain
         )
         session.add(audit)
         await session.commit()
+
+    if status == "done":
+        async with SessionLocal() as session:
+            plan = await session.get(Plan, plan_id)
+            if plan:
+                finding = await session.get(Finding, plan.finding_id)
+                if finding:
+                    next_status = status_after_successful_action(finding.status)
+                    if next_status and finding.status != next_status:
+                        finding.status = next_status
+                        session.add(
+                            AuditEntry(
+                                event_type="finding_status_changed",
+                                container_name=finding.container_name,
+                                details=f"{finding.id}: {next_status}",
+                            )
+                        )
+                        await session.commit()
+                        await hub.broadcast({
+                            "type": "finding_updated",
+                            "data": {"id": finding.id, "status": next_status},
+                        })
 
     await hub.broadcast({
         "type": "action_update",
