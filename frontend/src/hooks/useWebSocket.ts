@@ -1,6 +1,63 @@
 import { useEffect, useRef } from 'react'
 import { useStore } from '../store'
 
+type WSMessage = { type: string; data: unknown }
+
+type MessageStore = {
+  setContainers: ReturnType<typeof useStore.getState>['setContainers']
+  addLog: ReturnType<typeof useStore.getState>['addLog']
+  addFinding: ReturnType<typeof useStore.getState>['addFinding']
+  setActiveTab: ReturnType<typeof useStore.getState>['setActiveTab']
+  attachPlan: ReturnType<typeof useStore.getState>['attachPlan']
+  updateFinding: ReturnType<typeof useStore.getState>['updateFinding']
+  setActionUpdate: ReturnType<typeof useStore.getState>['setActionUpdate']
+  addAuditEntry: ReturnType<typeof useStore.getState>['addAuditEntry']
+}
+
+export function applyWsMessage(s: MessageStore, msg: WSMessage) {
+  switch (msg.type) {
+    case 'container_status': {
+      const d = msg.data as { containers: Parameters<typeof s.setContainers>[0] }
+      s.setContainers(d.containers)
+      break
+    }
+    case 'log_line': {
+      s.addLog(msg.data as Parameters<typeof s.addLog>[0])
+      break
+    }
+    case 'finding': {
+      s.addFinding(msg.data as Parameters<typeof s.addFinding>[0])
+      s.setActiveTab('findings')
+      break
+    }
+    case 'plan_ready': {
+      s.attachPlan(msg.data as Parameters<typeof s.attachPlan>[0])
+      break
+    }
+    case 'finding_updated': {
+      const d = msg.data as { id: string; status: string }
+      s.updateFinding(d.id, { status: d.status as 'dismissed' })
+      break
+    }
+    case 'action_update': {
+      const d = msg.data as Parameters<typeof s.setActionUpdate>[0]
+      s.setActionUpdate(d)
+      if (d.status !== 'executing') {
+        s.addAuditEntry({
+          id: crypto.randomUUID(),
+          timestamp: new Date().toISOString(),
+          event_type: 'action_executed',
+          container_name: null,
+          action: d.label ?? null,
+          result: d.status,
+          details: d.output ?? null,
+        })
+      }
+      break
+    }
+  }
+}
+
 export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -31,54 +88,9 @@ export function useWebSocket() {
       ws.onmessage = (ev) => {
         try {
           const msg = JSON.parse(ev.data)
-          handleMessage(msg)
+          applyWsMessage(useStore.getState(), msg)
         } catch {
           // ignore malformed
-        }
-      }
-    }
-
-    function handleMessage(msg: { type: string; data: unknown }) {
-      const s = useStore.getState()
-      switch (msg.type) {
-        case 'container_status': {
-          const d = msg.data as { containers: Parameters<typeof s.setContainers>[0] }
-          s.setContainers(d.containers)
-          break
-        }
-        case 'log_line': {
-          s.addLog(msg.data as Parameters<typeof s.addLog>[0])
-          break
-        }
-        case 'finding': {
-          s.addFinding(msg.data as Parameters<typeof s.addFinding>[0])
-          s.setActiveTab('findings')
-          break
-        }
-        case 'plan_ready': {
-          s.attachPlan(msg.data as Parameters<typeof s.attachPlan>[0])
-          break
-        }
-        case 'finding_updated': {
-          const d = msg.data as { id: string; status: string }
-          s.updateFinding(d.id, { status: d.status as 'dismissed' })
-          break
-        }
-        case 'action_update': {
-          const d = msg.data as Parameters<typeof s.setActionUpdate>[0]
-          s.setActionUpdate(d)
-          if (d.status !== 'executing') {
-            s.addAuditEntry({
-              id: crypto.randomUUID(),
-              timestamp: new Date().toISOString(),
-              event_type: 'action_executed',
-              container_name: null,
-              action: d.label ?? null,
-              result: d.status,
-              details: d.output ?? null,
-            })
-          }
-          break
         }
       }
     }

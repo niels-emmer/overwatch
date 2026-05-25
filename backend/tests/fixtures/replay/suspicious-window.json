@@ -1,0 +1,6 @@
+[
+  {"ts": 0, "text": "INFO: boot complete"},
+  {"ts": 1, "text": "ERROR: database timeout"},
+  {"ts": 5, "text": "Exception: connection reset"},
+  {"ts": 10, "text": "FATAL: failed query execution"}
+]

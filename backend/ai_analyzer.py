@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import re
 
 import httpx
@@ -9,6 +10,42 @@ from config import Config
 logger = logging.getLogger(__name__)
 
 _SEVERITY_ORDER = {"INFO": 0, "WARNING": 1, "ERROR": 2, "CRITICAL": 3}
+
+
+def _stub_enabled() -> bool:
+    return os.getenv("OVERWATCH_AI_STUB", "0") == "1"
+
+
+def _stub_response(system: str, user: str) -> str:
+    if "proposed_actions" in system:
+        return json.dumps(
+            {
+                "steps": [
+                    {
+                        "step": "Inspect recent errors",
+                        "description": "Review the most recent suspicious lines for repeated failures.",
+                    }
+                ],
+                "proposed_actions": [
+                    {
+                        "label": "Restart container",
+                        "action_type": "docker_restart",
+                        "command": None,
+                        "container_name": "",
+                    }
+                ],
+            }
+        )
+
+    severity = "ERROR" if "error" in user.lower() else "WARNING"
+    return json.dumps(
+        {
+            "severity": severity,
+            "summary": "Stub analysis detected a suspicious pattern.",
+            "root_cause": "Stub mode enabled for deterministic testing.",
+            "confidence": 0.9,
+        }
+    )
 
 
 def _no_think_prefix(model: str) -> str:
@@ -74,6 +111,11 @@ async def generate_plan(finding: dict, container_name: str, config: Config) -> d
         "proposed_actions (array of {label: string, action_type: 'docker_restart'|'docker_exec', "
         "command: string|null, container_name: string}). "
         "Only propose safe actions: docker restart or specific exec commands. "
+        "IMPORTANT: exec commands run inside the target container which may be a minimal image. "
+        "Never use curl or docker — they are rarely present inside containers. "
+        "Prefer: wget -q -O- <url>, nc -zw3 <host> <port>, "
+        "or python3 -c \"import urllib.request; urllib.request.urlopen('<url>')\" "
+        "for connectivity checks. Use only POSIX shell builtins and tools present in busybox/alpine by default. "
         "Return ONLY valid JSON."
     )
     user = (
@@ -101,6 +143,9 @@ async def generate_plan(finding: dict, container_name: str, config: Config) -> d
 
 
 async def _chat(model: str, system: str, user: str, host: str) -> str | None:
+    if _stub_enabled():
+        return _stub_response(system, user)
+
     url = f"{host.rstrip('/')}/api/chat"
     payload = {
         "model": model,
