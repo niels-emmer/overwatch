@@ -8,14 +8,27 @@ AI-powered Docker log monitor with a live web UI. Overwatch tails all running co
 
 ## Features
 
-- **Live log streaming** — all Docker containers, color-coded by severity, filterable per container
+- **Live log streaming** — all Docker containers, color-coded by severity, filterable by container and log level (`all / info / warning / error`)
 - **Automatic error detection** — regex pre-filter catches errors/exceptions/OOM/timeouts before touching the LLM
+- **Adaptive anomaly scoring** — findings can trigger on spikes/novel signatures/severity even below static line thresholds
+- **Pre-emptive risk scoring** — drift-aware risk score + risk horizon warns before hard failure signatures
 - **AI analysis** — suspicious log windows are sent to a local Ollama model for structured diagnosis (severity, summary, root cause)
 - **Diagnostic plans** — a second model generates step-by-step investigation steps and proposed fix actions
+- **Context-enriched prompts** — analysis and planning include bounded runtime context with redaction
+- **Local model failover** — optional local fallback model routing with AI health visibility
 - **One-click fixes** — restart a container or exec any AI-suggested command directly from the UI, with a confirm dialog and inline output
-- **Deduplication** — per-container cooldown suppresses repeat findings for a configurable period; dismissing a finding resets it immediately
+- **Fingerprint clustering** — repeated incidents merge into one finding with occurrence count and last-seen updates
+- **Incident correlation** — related findings are grouped into incident clusters with confidence and evidence
+- **Blast-radius hints** — findings show likely impacted peer services to speed triage
+- **Lifecycle workflow** — finding states support `open / investigating / mitigated / regressed / resolved / dismissed`
+- **Policy guardrails** — high-risk exec actions require explicit approval before execution
+- **Safe auto-remediation** — policy-profile-driven low-risk restart automation with verification and escalation
 - **Sidebar filtering** — group containers by Compose stack, expand/collapse stacks, filter to unhealthy containers only
 - **Findings filtering** — toggle between active-only and all (including dismissed) findings
+- **Operational status bar** — live connection state, AI health, detected container count, and server uptime
+- **Policy templates** — switch `recommendation-only / conservative / default / aggressive` profile from the UI
+- **Prioritized work queue** — risk + blast radius + age based incident ordering via API
+- **Shift summary export** — one-click markdown handoff summary from audit tab
 - **Audit log** — every finding, plan, and executed action is persisted to SQLite
 - **Fully local** — uses `qwen3:8b` for analysis and `devstral-small-2` for planning by default; both configurable
 
@@ -115,6 +128,11 @@ monitor:
   min_error_lines_to_trigger: 3   # how many suspicious lines trigger an analysis
   finding_severity_threshold: WARNING  # minimum severity to generate a plan
   cooldown_minutes: 10                 # suppress duplicate findings per container for this long
+  anomaly_score_threshold: 2.0         # emit early when anomaly score crosses threshold
+  risk_score_threshold: 65.0           # emit pre-emptive warnings above this risk level
+  auto_remediation_profile: recommendation_only  # recommendation_only|conservative|default|aggressive
+  auto_remediation_window_minutes: 30
+  auto_remediation_max_per_window: 2
 
 allowed_actions:
   - type: docker_restart
@@ -141,16 +159,28 @@ Log monitor — tails all running containers via Docker SDK (one thread per cont
     │
     ▼
 Error detector — cheap regex pre-filter (ERROR, FATAL, Exception, OOM, timeout, ...)
-    │  (≥ N suspicious lines in a 30s window)
+  │
+  ├── Fingerprint + anomaly scoring (novel signature / spike / severity)
+  │      emits finding metadata: score + trigger reasons
+  │
+  ├── Drift baseline + risk scoring
+  │      emits risk_score + risk_horizon
+  │
+  │  (threshold OR anomaly trigger OR risk trigger)
     ▼
 AI analyzer ──► Ollama qwen3:8b
-    │              returns: severity, summary, root cause, confidence
+  │              returns: severity, summary, root cause, confidence
+  │              uses context-enriched, size-bounded, redacted prompts
     ▼
 SQLite (findings table) + WebSocket broadcast → UI
     │
+  ├── Correlation engine
+  │      groups findings into incident_group + blast_radius
+  │
     └── if severity ≥ threshold:
           AI analyzer ──► Ollama devstral-small-2
                            returns: diagnostic steps + proposed actions
+               actions reordered by historical outcome ranking
                         SQLite (plans table) + WebSocket broadcast → UI
 
 User clicks "Execute" in UI → confirm dialog → POST /api/plans/.../execute
@@ -158,11 +188,27 @@ User clicks "Execute" in UI → confirm dialog → POST /api/plans/.../execute
     ▼
 Action executor (docker restart / exec, via Docker SDK)
     │
+  ├── optional low-risk auto-remediation by policy profile
+  │      verification + escalation if recovery checks fail
+  │
     ▼
 SQLite (audit_log table) + WebSocket broadcast → UI
 ```
 
-The regex pre-filter means Ollama is only invoked when something actually looks wrong — healthy containers produce zero LLM calls.
+The regex pre-filter plus anomaly gate means Ollama is only invoked when logs look suspicious enough to justify analysis.
+
+---
+
+## API highlights
+
+- `GET /api/server-status` — backend start time + uptime seconds (used by top-bar uptime)
+- `GET /api/ai-health` — local model health/failure snapshot
+- `GET /api/anomaly` — latest anomaly evaluation snapshot
+- `GET /api/risk` — persisted per-container risk snapshots and threshold
+- `GET /api/work-queue` — prioritized actionable incidents (risk/blast-radius/age)
+- `GET /api/summary/shift` — markdown shift handoff summary
+- `POST /api/policy-template` — switch auto-remediation profile at runtime
+- `POST /api/findings/{id}/status` — lifecycle status transition endpoint
 
 ---
 
@@ -174,6 +220,19 @@ docker compose up -d --build
 ```
 
 The SQLite database in `data/` persists across upgrades automatically. If a schema change is needed in a future version, it will be noted in the release notes.
+
+### Restricted-network VPS note
+
+If your VPS cannot reach GitHub or Docker Hub directly, a plain `git pull` or `docker compose up --build` may not refresh code/images.
+
+In that environment, use this workflow instead:
+
+1. Build and test locally.
+2. Create and transfer a git bundle (`git bundle create ...` + `scp ...`).
+3. On VPS: `git fetch ./bundle main && git reset --hard FETCH_HEAD`.
+4. Recreate stack with `docker compose -p overwatch up -d --force-recreate`.
+
+If frontend/backend images are stale and cannot be rebuilt due to blocked registry access, you can temporarily hot-sync artifacts/source into running containers (`docker cp ...`) and restart services. This workaround is not persistent across future recreate operations.
 
 ---
 
@@ -227,7 +286,7 @@ docker compose restart backend
 
 **Findings keep firing for the same ongoing problem**
 
-This is controlled by `cooldown_minutes` in `config/overwatch.yaml` (default: 10 minutes). While an open finding exists for a container, no new findings are generated for that container within the cooldown window. Dismissing a finding clears the cooldown immediately.
+Findings are clustered by fingerprint. Repeated matching incidents update occurrence count and `last_seen_at` on the existing finding. Cooldown is still used to dampen truly new non-novel incidents in the same container.
 
 **Database is missing or corrupted**
 
@@ -249,7 +308,9 @@ overwatch/
 │   ├── log_monitor.py       # Docker log tailing + window accumulation
 │   ├── error_detector.py    # Regex pre-filter
 │   ├── ai_analyzer.py       # Ollama HTTP client (analysis + planning)
+│   ├── action_ranking.py    # historical outcome ranking + explainability metadata
 │   ├── action_executor.py   # docker restart / exec
+│   ├── correlation.py       # incident grouping + blast-radius inference
 │   ├── database.py          # SQLAlchemy async + SQLite models
 │   └── config.py            # YAML config loader
 ├── frontend/
