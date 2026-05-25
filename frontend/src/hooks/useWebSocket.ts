@@ -98,6 +98,22 @@ export function useWebSocket() {
 
     connect()
 
+    const healthTimer = setInterval(() => {
+      fetch('/api/ai-health')
+        .then((r) => r.json())
+        .then((health) => {
+          const models = health?.models ?? {}
+          const degraded = Object.values(models).some((v) => {
+            const item = v as { failures?: number }
+            return (item.failures ?? 0) >= 3
+          })
+          useStore.getState().setAiDegraded(Boolean(degraded))
+        })
+        .catch(() => {
+          useStore.getState().setAiDegraded(false)
+        })
+    }, 10000)
+
     // Fetch initial data
     fetch('/api/findings')
       .then((r) => r.json())
@@ -114,6 +130,7 @@ export function useWebSocket() {
     return () => {
       unmounted = true
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current)
+      clearInterval(healthTimer)
       wsRef.current?.close()
     }
   }, [])

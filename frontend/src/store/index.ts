@@ -83,6 +83,7 @@ interface State {
   activeTab: 'logs' | 'findings' | 'audit'
   sidebarFilter: 'all' | 'unhealthy'
   wsConnected: boolean
+  aiDegraded: boolean
   actionUpdates: Record<string, ActionUpdate>
 
   setContainers: (containers: Container[]) => void
@@ -96,6 +97,7 @@ interface State {
   setActiveTab: (tab: 'logs' | 'findings' | 'audit') => void
   setSidebarFilter: (f: 'all' | 'unhealthy') => void
   setWsConnected: (v: boolean) => void
+  setAiDegraded: (v: boolean) => void
   setActionUpdate: (update: ActionUpdate) => void
 }
 
@@ -109,6 +111,7 @@ export const useStore = create<State>((set) => ({
   activeTab: 'logs',
   sidebarFilter: 'all',
   wsConnected: false,
+  aiDegraded: false,
   actionUpdates: {},
 
   setContainers: (containers) => set({ containers }),
@@ -146,6 +149,7 @@ export const useStore = create<State>((set) => ({
   setActiveTab: (tab) => set({ activeTab: tab }),
   setSidebarFilter: (sidebarFilter) => set({ sidebarFilter }),
   setWsConnected: (wsConnected) => set({ wsConnected }),
+  setAiDegraded: (aiDegraded) => set({ aiDegraded }),
   setActionUpdate: (update) =>
     set((s) => ({
       actionUpdates: {

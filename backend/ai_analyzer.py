@@ -2,6 +2,9 @@ import json
 import logging
 import os
 import re
+import time
+
+import asyncio
 
 import httpx
 
@@ -11,6 +14,11 @@ from prompt_context import build_context_block
 logger = logging.getLogger(__name__)
 
 _SEVERITY_ORDER = {"INFO": 0, "WARNING": 1, "ERROR": 2, "CRITICAL": 3}
+_MAX_CONCURRENCY = int(os.getenv("OVERWATCH_AI_MAX_CONCURRENCY", "4"))
+_AI_SEMAPHORE = asyncio.Semaphore(_MAX_CONCURRENCY)
+_MODEL_STATE: dict[str, dict[str, float | int]] = {}
+_CIRCUIT_FAILS = int(os.getenv("OVERWATCH_AI_CIRCUIT_FAILS", "3"))
+_CIRCUIT_COOLDOWN_SECONDS = int(os.getenv("OVERWATCH_AI_CIRCUIT_COOLDOWN", "60"))
 
 
 def _stub_enabled() -> bool:
@@ -47,6 +55,54 @@ def _stub_response(system: str, user: str) -> str:
             "confidence": 0.9,
         }
     )
+
+
+def _record_success(model: str) -> None:
+    _MODEL_STATE[model] = {"failures": 0, "last_failure": 0.0}
+
+
+def _record_failure(model: str) -> None:
+    state = _MODEL_STATE.setdefault(model, {"failures": 0, "last_failure": 0.0})
+    state["failures"] = int(state.get("failures", 0)) + 1
+    state["last_failure"] = time.time()
+
+
+def _circuit_open(model: str) -> bool:
+    state = _MODEL_STATE.get(model)
+    if not state:
+        return False
+    failures = int(state.get("failures", 0))
+    last_failure = float(state.get("last_failure", 0.0))
+    return failures >= _CIRCUIT_FAILS and (time.time() - last_failure) < _CIRCUIT_COOLDOWN_SECONDS
+
+
+def _fallback_models(kind: str) -> list[str]:
+    env_key = "OVERWATCH_ANALYSIS_FALLBACK_MODELS" if kind == "analysis" else "OVERWATCH_PLANNING_FALLBACK_MODELS"
+    raw = os.getenv(env_key, "")
+    return [m.strip() for m in raw.split(",") if m.strip()]
+
+
+async def _chat_with_fallback(primary_model: str, system: str, user: str, host: str, *, kind: str) -> str | None:
+    candidates: list[str] = [primary_model] + _fallback_models(kind)
+    seen: set[str] = set()
+    ordered = [m for m in candidates if not (m in seen or seen.add(m))]
+
+    for model in ordered:
+        if _circuit_open(model):
+            continue
+        result = await _chat(model, system, user, host)
+        if result:
+            return result
+    return None
+
+
+def ai_health_snapshot() -> dict:
+    return {
+        "max_concurrency": _MAX_CONCURRENCY,
+        "circuit_fail_threshold": _CIRCUIT_FAILS,
+        "circuit_cooldown_seconds": _CIRCUIT_COOLDOWN_SECONDS,
+        "models": _MODEL_STATE,
+    }
 
 
 def _no_think_prefix(model: str) -> str:
@@ -90,7 +146,7 @@ async def analyze_logs(container_name: str, log_text: str, config: Config, conte
         f"Logs:\n{log_text}"
     )
 
-    result = await _chat(model, system, user, config.ollama.host)
+    result = await _chat_with_fallback(model, system, user, config.ollama.host, kind="analysis")
     if not result:
         return None
 
@@ -134,7 +190,7 @@ async def generate_plan(finding: dict, container_name: str, config: Config, cont
         "Generate a diagnostic plan and proposed fix actions."
     )
 
-    result = await _chat(model, system, user, config.ollama.host)
+    result = await _chat_with_fallback(model, system, user, config.ollama.host, kind="planning")
     if not result:
         return None
 
@@ -165,11 +221,14 @@ async def _chat(model: str, system: str, user: str, host: str) -> str | None:
         "format": "json",
     }
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            resp = await client.post(url, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            return data.get("message", {}).get("content", "")
+        async with _AI_SEMAPHORE:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                resp = await client.post(url, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+                _record_success(model)
+                return data.get("message", {}).get("content", "")
     except Exception as e:
+        _record_failure(model)
         logger.error(f"Ollama request failed ({model}): {e}")
         return None

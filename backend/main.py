@@ -333,3 +333,8 @@ async def get_anomaly(container_name: str | None = None):
     if not monitor:
         return {}
     return monitor.anomaly_snapshot(container_name)
+
+
+@app.get("/api/ai-health")
+async def get_ai_health():
+    return ai_analyzer.ai_health_snapshot()

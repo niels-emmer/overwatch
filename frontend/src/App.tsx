@@ -8,6 +8,7 @@ import { AuditLog } from './components/AuditLog'
 
 function StatusBar() {
   const wsConnected = useStore((s) => s.wsConnected)
+  const aiDegraded = useStore((s) => s.aiDegraded)
   const findings = useStore((s) => s.findings)
   const openCount = findings.filter((f) => f.status === 'open').length
 
@@ -18,6 +19,9 @@ function StatusBar() {
       </span>
       <span className={`text-xs px-2 py-0.5 rounded-full ${wsConnected ? 'bg-green-900 text-green-400' : 'bg-red-900 text-red-400'}`}>
         {wsConnected ? 'live' : 'connecting...'}
+      </span>
+      <span className={`text-xs px-2 py-0.5 rounded-full ${aiDegraded ? 'bg-yellow-900 text-yellow-400' : 'bg-gray-800 text-gray-400'}`}>
+        {aiDegraded ? 'ai degraded' : 'ai healthy'}
       </span>
       {openCount > 0 && (
         <span className="ml-auto text-xs bg-red-700 text-white px-2 py-0.5 rounded-full">
