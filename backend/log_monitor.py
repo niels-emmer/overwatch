@@ -119,32 +119,35 @@ class LogMonitor:
                     "image": image,
                 })
             return result
-        except DockerException as e:
+        except Exception as e:
             logger.error(f"Cannot list containers: {e}")
             return []
 
     async def _sync_containers(self) -> None:
         while self._running:
-            containers = await asyncio.to_thread(self._get_containers)
-            running_ids = {c["id"] for c in containers}
+            try:
+                containers = await asyncio.to_thread(self._get_containers)
+                running_ids = {c["id"] for c in containers}
 
-            for c in containers:
-                if c["id"] not in self._streams:
-                    stream = ContainerLogStream(c["id"], c["name"], self._loop)
-                    self._streams[c["id"]] = stream
-                    stream.start()
-                    asyncio.create_task(self._drain_stream(c["id"], c["name"], stream))
+                for c in containers:
+                    if c["id"] not in self._streams:
+                        stream = ContainerLogStream(c["id"], c["name"], self._loop)
+                        self._streams[c["id"]] = stream
+                        stream.start()
+                        asyncio.create_task(self._drain_stream(c["id"], c["name"], stream))
 
-            for cid in list(self._streams.keys()):
-                if cid not in running_ids:
-                    self._streams[cid].stop()
-                    del self._streams[cid]
+                for cid in list(self._streams.keys()):
+                    if cid not in running_ids:
+                        self._streams[cid].stop()
+                        del self._streams[cid]
 
-            await self._broadcast({
-                "type": "container_status",
-                "data": {"containers": containers},
-            })
-            self._containers = containers
+                await self._broadcast({
+                    "type": "container_status",
+                    "data": {"containers": containers},
+                })
+                self._containers = containers
+            except Exception as e:
+                logger.error(f"Error in _sync_containers: {e}")
             await asyncio.sleep(10)
 
     async def _drain_stream(self, container_id: str, container_name: str, stream: ContainerLogStream) -> None:
